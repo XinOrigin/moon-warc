@@ -123,3 +123,37 @@ test "http_payload decodes uppercase hex chunks and multi-line trailers" {
     Err(_) => fail("unexpected HTTP parse error")
   }
 }
+
+///|
+test "http_payload prefers earliest LF-LF header split over CRLF-CRLF inside body" {
+  let raw = b"HTTP/1.1 200 OK\nContent-Type: text/plain\n\nhello\r\n\r\nworld"
+  match @http_payload.parse_http_response(raw) {
+    Ok(resp) => {
+      assert_eq(resp.status_code, 200)
+      assert_eq(resp.content_type_mime(), Some("text/plain"))
+      assert_eq(resp.body, b"hello\r\n\r\nworld")
+    }
+    Err(_) => fail("expected LF-LF header split to succeed")
+  }
+}
+
+///|
+test "http_payload handles obs-fold headers and multiple Transfer-Encoding headers accurately" {
+  let folded = b"HTTP/1.1 200 OK\r\nX-Custom: line1\r\n\tline2\r\nTransfer-Encoding: gzip\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+  match @http_payload.parse_http_response(folded) {
+    Ok(resp) => {
+      assert_eq(
+        @http_payload.header_value(resp.headers, "X-Custom"),
+        Some("line1 line2"),
+      )
+      assert_true(resp.is_chunked())
+      assert_eq(@http_payload.extract_entity_body(resp), Ok(b"hello"))
+    }
+    Err(_) => fail("expected obs-fold + multi TE parse to succeed")
+  }
+  let fake_te = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: x-chunked-custom\r\n\r\nraw"
+  match @http_payload.parse_http_response(fake_te) {
+    Ok(resp) => assert_false(resp.is_chunked())
+    Err(_) => fail("unexpected error on non-chunked TE")
+  }
+}

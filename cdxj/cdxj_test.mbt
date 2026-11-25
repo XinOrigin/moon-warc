@@ -156,3 +156,77 @@ test "cdxj format_all round-trip, numeric JSON fields, and conversion indexing" 
   assert_eq(empty.lookup_exact("https://example.org/"), [])
   assert_eq(empty.lookup_prefix("org,example"), [])
 }
+
+///|
+test "cdxj lookup_closest uses epoch seconds across midnight and month-end boundaries" {
+  let midnight_entries : Array[@cdxj.CdxjEntry] = [
+    {
+      surt: "org,example)/boundary",
+      timestamp: "20261126000001",
+      url: "https://example.org/boundary",
+      mime: Some("text/html"),
+      status: Some(200),
+      digest: None,
+      length: 100,
+      offset: 200,
+      filename: "b.warc",
+      warc_type: "response",
+    },
+    {
+      surt: "org,example)/boundary",
+      timestamp: "20261125235000",
+      url: "https://example.org/boundary",
+      mime: Some("text/html"),
+      status: Some(200),
+      digest: None,
+      length: 100,
+      offset: 0,
+      filename: "b.warc",
+      warc_type: "response",
+    },
+  ]
+  let idx = @cdxj.CdxjIndex::from_entries(midnight_entries)
+  assert_eq(idx.entries[0].timestamp, "20261125235000")
+  assert_eq(idx.entries[1].timestamp, "20261126000001")
+  match idx.lookup_closest("https://example.org/boundary", "20261125235959") {
+    Some(hit) => assert_eq(hit.timestamp, "20261126000001")
+    None => fail("expected cross-midnight hit")
+  }
+  let month_idx = @cdxj.CdxjIndex::from_entries([
+    {
+      surt: "org,example)/month",
+      timestamp: "20260228235000",
+      url: "https://example.org/month",
+      mime: None,
+      status: Some(200),
+      digest: None,
+      length: 10,
+      offset: 0,
+      filename: "m.warc",
+      warc_type: "response",
+    },
+    {
+      surt: "org,example)/month",
+      timestamp: "20260301000001",
+      url: "https://example.org/month",
+      mime: None,
+      status: Some(200),
+      digest: None,
+      length: 10,
+      offset: 50,
+      filename: "m.warc",
+      warc_type: "response",
+    },
+  ])
+  match
+    month_idx.lookup_closest("https://example.org/month", "20260228235959") {
+    Some(hit) => assert_eq(hit.timestamp, "20260301000001")
+    None => fail("expected cross-month hit")
+  }
+}
+
+///|
+test "cdxj parse_line rejects overflowing Int32 length field" {
+  let overflow_line = "org,example)/ov 20261125101500 {\"url\":\"https://example.org/ov\",\"length\":\"999999999999\",\"offset\":0}"
+  assert_true(@cdxj.parse_line(overflow_line) is Err(_))
+}

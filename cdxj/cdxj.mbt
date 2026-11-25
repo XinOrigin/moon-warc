@@ -26,7 +26,7 @@ pub(all) struct CdxjEntry {
 ///|
 /// Sorted CDXJ index supporting fast binary-search queries.
 #derive(Eq, Debug)
-pub(all) struct CdxjIndex {
+pub struct CdxjIndex {
   entries : Array[CdxjEntry]
 }
 
@@ -55,25 +55,95 @@ fn parse_int_string(s : String) -> Int32? {
     if c < 48 || c > 57 {
       return None
     }
+    let digit = c - 48
+    if acc > 214748364 || (acc == 214748364 && digit > 7) {
+      return None
+    }
+    acc = acc * 10 + digit
+  }
+  Some(acc)
+}
+
+///|
+fn parse_digits_slice(s : String, start : Int32, len : Int32) -> Int32? {
+  if start < 0 || len <= 0 || start + len > s.length() {
+    return None
+  }
+  let mut acc = 0
+  for i in 0..<len {
+    let c = s[start + i].to_int()
+    if c < 48 || c > 57 {
+      return None
+    }
     acc = acc * 10 + (c - 48)
   }
   Some(acc)
 }
 
 ///|
-fn parse_u64_timestamp(ts : String) -> Int64? {
-  if ts.is_empty() {
+fn is_leap_year(year : Int32) -> Bool {
+  (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+///|
+fn days_in_month(year : Int32, month : Int32) -> Int32 {
+  match month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+    4 | 6 | 9 | 11 => 30
+    2 => if is_leap_year(year) { 29 } else { 28 }
+    _ => 0
+  }
+}
+
+///|
+fn timestamp_to_epoch_seconds(ts : String) -> Int64? {
+  if ts.length() != 14 {
     return None
   }
-  let mut acc = 0L
-  for i in 0..<ts.length() {
-    let c = ts[i].to_int()
-    if c < 48 || c > 57 {
-      return None
-    }
-    acc = acc * 10L + (c - 48).to_int64()
+  let year = match parse_digits_slice(ts, 0, 4) {
+    Some(v) => v
+    None => return None
   }
-  Some(acc)
+  let month = match parse_digits_slice(ts, 4, 2) {
+    Some(v) => v
+    None => return None
+  }
+  let day = match parse_digits_slice(ts, 6, 2) {
+    Some(v) => v
+    None => return None
+  }
+  let hour = match parse_digits_slice(ts, 8, 2) {
+    Some(v) => v
+    None => return None
+  }
+  let minute = match parse_digits_slice(ts, 10, 2) {
+    Some(v) => v
+    None => return None
+  }
+  let second = match parse_digits_slice(ts, 12, 2) {
+    Some(v) => v
+    None => return None
+  }
+  if year < 1 || month < 1 || month > 12 {
+    return None
+  }
+  let max_day = days_in_month(year, month)
+  if day < 1 || day > max_day || hour > 23 || minute > 59 || second > 59 {
+    return None
+  }
+  let y = if month <= 2 { (year - 1).to_int64() } else { year.to_int64() }
+  let era = if y >= 0L { y / 400L } else { (y - 399L) / 400L }
+  let yoe = y - era * 400L
+  let adj_m = month + (if month > 2 { -3 } else { 9 })
+  let doy = (153L * adj_m.to_int64() + 2L) / 5L + day.to_int64() - 1L
+  let doe = yoe * 365L + yoe / 4L - yoe / 100L + doy
+  let days = era * 146097L + doe - 719468L
+  Some(
+    days * 86400L +
+    hour.to_int64() * 3600L +
+    minute.to_int64() * 60L +
+    second.to_int64(),
+  )
 }
 
 ///|
@@ -297,6 +367,17 @@ pub fn CdxjIndex::build(
 }
 
 ///|
+/// Builds a lexicographically sorted `CdxjIndex` from pre-constructed `CdxjEntry` values.
+pub fn CdxjIndex::from_entries(entries : Array[CdxjEntry]) -> CdxjIndex {
+  let copy : Array[CdxjEntry] = []
+  for e in entries {
+    copy.push(e)
+  }
+  copy.sort_by(compare_entries)
+  { entries: copy, }
+}
+
+///|
 /// Renders all entries as newline-separated CDXJ lines.
 pub fn CdxjIndex::format_all(self : CdxjIndex) -> String {
   let lines : Array[String] = []
@@ -367,21 +448,22 @@ pub fn CdxjIndex::lookup_closest(
   if matches.is_empty() {
     return None
   }
-  let target_num = match
-    parse_u64_timestamp(target_timestamp.trim().to_owned()) {
+  let target_sec = match
+    timestamp_to_epoch_seconds(target_timestamp.trim().to_owned()) {
     Some(v) => v
     None => return Some(matches[0])
   }
+  let max_diff = 9223372036854775807L
   let mut best = matches[0]
-  let mut best_diff = match parse_u64_timestamp(best.timestamp) {
-    Some(v) => (v - target_num).abs()
-    None => 99999999999999L
+  let mut best_diff = match timestamp_to_epoch_seconds(best.timestamp) {
+    Some(v) => (v - target_sec).abs()
+    None => max_diff
   }
   for i in 1..<matches.length() {
     let cand = matches[i]
-    let diff = match parse_u64_timestamp(cand.timestamp) {
-      Some(v) => (v - target_num).abs()
-      None => 99999999999999L
+    let diff = match timestamp_to_epoch_seconds(cand.timestamp) {
+      Some(v) => (v - target_sec).abs()
+      None => max_diff
     }
     if diff < best_diff {
       best = cand

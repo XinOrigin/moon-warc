@@ -38,11 +38,12 @@ pub(all) enum CdxjError {
 }
 
 #derive(Eq, @debug.Debug)
-pub(all) struct CdxjIndex {
+pub struct CdxjIndex {
   entries : Array[CdxjEntry]
 }
 pub fn CdxjIndex::build(Array[@codec.WarcRecord], filename? : String) -> Self
 pub fn CdxjIndex::format_all(Self) -> String
+pub fn CdxjIndex::from_entries(Array[CdxjEntry]) -> Self
 pub fn CdxjIndex::lookup_closest(Self, StringView, StringView) -> CdxjEntry?
 pub fn CdxjIndex::lookup_exact(Self, StringView) -> Array[CdxjEntry]
 pub fn CdxjIndex::lookup_prefix(Self, StringView) -> Array[CdxjEntry]
