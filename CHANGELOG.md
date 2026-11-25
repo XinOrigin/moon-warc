@@ -5,6 +5,24 @@ All notable changes to `xinorigin/moon_warc` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-25
+
+### Added
+
+- **`pipeline` Package ([`pipeline/`](pipeline/))**:
+  - **ISO 28500 §9 Segmentation & Reassembly (`segment.mbt`)**: `segment_record`, `reassemble_segments`, and `PipelineError` (`InvalidSegmentSize`, `MissingOriginRecord`, `MissingSegmentNumber`, `OutOfOrderSegment`, `TotalLengthMismatch`, `PayloadDigestMismatch`) preserving full logical `WARC-Payload-Digest` across origin + `continuation` slices and verifying contiguous `2..N` sequencing, `WARC-Segment-Total-Length`, and reassembled entity digests.
+  - **Archive Subset Filtering (`filter.mbt`)**: `ArchiveFilter` (`ArchiveFilter::all`, `ArchiveFilter::new`), `matches_filter`, `filter_records`, and `extract_subset` supporting `warc_types`, `surt_prefix`, lowercase `mime_prefix`, HTTP `status_min`/`status_max`, and normalized 14-digit UTC `date_from`/`date_to` (`String::lexical_compare`), with optional `warcinfo` retention.
+  - **CDX-11 & LLM JSONL Export (`export.mbt`)**: `export_cdx11` (standard `" CDX N b a m s k r M S V g"` header + 11 space-delimited columns) and `export_jsonl` (`JsonlOptions`, RFC 8259 control-character escaping, HTTP de-chunking, Unicode scalar truncation, graceful omission of `"text"` on binary or non-UTF-8 payloads).
+- **`header` Segmentation Helpers ([`header/header.mbt`](header/header.mbt))**: Added `WarcHeader::without_field`, `segment_number`, `segment_origin_id`, and `segment_total_length`.
+- **`validate` Continuation Rules ([`validate/validate.mbt`](validate/validate.mbt))**: Expanded from 18 to **22 diagnostic codes** by validating `continuation` records (`MISSING_SEGMENT_ORIGIN_ID`, `INVALID_SEGMENT_ORIGIN_ID`, `UNRESOLVED_SEGMENT_ORIGIN_ID`, `INVALID_SEGMENT_NUMBER`) and syntax-checking `WARC-Payload-Digest` on segmented origin records (`WARC-Segment-Number: 1`).
+- **Root Facade, CLI & Differential Oracle**: Exposed `segment_record`, `reassemble_segments`, `filter_records`, `extract_subset`, `export_cdx11`, and `export_jsonl` in [`moon_warc.mbt`](moon_warc.mbt), bumped `library_version()` and [`moon.mod`](moon.mod) to `0.2.0`, added §9 and subset/CDX-11/JSONL sections to [`cmd/main/main.mbt`](cmd/main/main.mbt), and expanded [`scripts/verify_oracle.py`](scripts/verify_oracle.py) to cross-check all `v0.2.0` pipeline outputs.
+- **Documentation & Pre-Registration Kit**: Added [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/JUDGE_QA.md`](docs/JUDGE_QA.md); updated [`README.md`](README.md), [`PROJECT_PROPOSAL.md`](PROJECT_PROPOSAL.md), [`AI_USAGE.md`](AI_USAGE.md), and [`SUBMISSION_CHECKLIST.md`](SUBMISSION_CHECKLIST.md) (with Feishu copy-paste kit).
+
+### Changed
+
+- **`codec` `auto_digest` Guard ([`codec/writer.mbt`](codec/writer.mbt))**: Preserved full logical `WARC-Payload-Digest` on segmented origin HTTP `response` records (`WARC-Segment-Number` present) when re-encoding wire records.
+- **Verification Scale**: Test suite expanded from 116 to **163 / 163 passing tests** across `wasm`, `wasm-gc`, `js`, and `native` (8,192 total lines of `.mbt` across 10 workspace packages).
+
 ## [0.1.0] - 2026-11-25
 
 ### Added
