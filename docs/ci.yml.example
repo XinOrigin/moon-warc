@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Toolchain version
+        run: moon version --all
+      - name: Lint (moon check --deny-warn)
+        run: moon check --deny-warn
+      - name: Format check
+        run: moon fmt --check
+      - name: Interface freshness (moon info)
+        run: |
+          moon info
+          git diff --exit-code -- '*.mbti'
+          test -z "$(git ls-files --others --exclude-standard -- '*.mbti')"
+      - name: Test (wasm, wasm-gc, js, native)
+        run: |
+          moon test --target wasm
+          moon test --target wasm-gc
+          moon test --target js
+          moon test --target native
+      - name: Run CLI demo if present
+        run: |
+          if [ -f cmd/main/main.mbt ]; then
+            moon run cmd/main --target native
+            moon run cmd/main --target js
+          fi
+      - name: Package archive stays clean
+        run: |
+          moon package --list >pkg-list.txt 2>&1
+          cat pkg-list.txt
+          if grep -E '^(scripts/|_build/|target/|\.github/|PROJECT_PROPOSAL\.md|AI_USAGE\.md|SUBMISSION_CHECKLIST\.md)' pkg-list.txt; then
+            echo "::error::non-package files leaked into moon package"
+            exit 1
+          fi

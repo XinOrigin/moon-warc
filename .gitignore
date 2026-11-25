@@ -1,0 +1,6 @@
+_build/
+target/
+.DS_Store
+__pycache__/
+*.tmp
+pkg-list.txt
