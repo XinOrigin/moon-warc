@@ -1,0 +1,61 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/validate"
+
+import {
+  "moonbitlang/core/debug",
+  "xinorigin/moon_warc/codec",
+}
+
+// Values
+pub fn resolve_revisits(Array[@codec.WarcRecord]) -> Array[ResolvedRevisit]
+
+pub fn validate_archive(Array[@codec.WarcRecord]) -> ValidationReport
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) struct Diagnostic {
+  severity : Severity
+  code : String
+  record_index : Int32
+  offset : Int32
+  message : String
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) struct ResolvedRevisit {
+  revisit_index : Int32
+  revisit_id : String
+  target_uri : String
+  revisit_date : String
+  match_kind : RevisitMatchKind
+  target_index : Int32?
+  target_record_id : String?
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum RevisitMatchKind {
+  ByRecordId
+  ByUriAndDigest
+  Unresolved
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Severity {
+  Error
+  Warning
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) struct ValidationReport {
+  record_count : Int32
+  error_count : Int32
+  warning_count : Int32
+  diagnostics : Array[Diagnostic]
+}
+pub fn ValidationReport::is_valid(Self) -> Bool
+
+// Type aliases
+
+// Traits
