@@ -1,0 +1,52 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/cdxj"
+
+import {
+  "moonbitlang/core/debug",
+  "xinorigin/moon_warc/codec",
+}
+
+// Values
+pub fn format_line(CdxjEntry) -> String
+
+pub fn from_record(@codec.WarcRecord, filename? : String) -> CdxjEntry?
+
+pub fn parse_line(StringView) -> Result[CdxjEntry, CdxjError]
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) struct CdxjEntry {
+  surt : String
+  timestamp : String
+  url : String
+  mime : String?
+  status : Int32?
+  digest : String?
+  length : Int32
+  offset : Int32
+  filename : String
+  warc_type : String
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum CdxjError {
+  InvalidLineFormat(String)
+  InvalidJsonBlock(String)
+  MissingJsonField(String)
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) struct CdxjIndex {
+  entries : Array[CdxjEntry]
+}
+pub fn CdxjIndex::build(Array[@codec.WarcRecord], filename? : String) -> Self
+pub fn CdxjIndex::format_all(Self) -> String
+pub fn CdxjIndex::lookup_closest(Self, StringView, StringView) -> CdxjEntry?
+pub fn CdxjIndex::lookup_exact(Self, StringView) -> Array[CdxjEntry]
+pub fn CdxjIndex::lookup_prefix(Self, StringView) -> Array[CdxjEntry]
+
+// Type aliases
+
+// Traits

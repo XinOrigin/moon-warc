@@ -1,0 +1,6 @@
+import {
+  "xinorigin/moon_warc" @warc,
+  "xinorigin/moon_warc/header",
+}
+
+pkgtype(kind: "executable")

@@ -1,0 +1,7 @@
+import {
+  "xinorigin/moon_warc/codec",
+  "xinorigin/moon_warc/header",
+  "xinorigin/moon_warc/surt",
+  "xinorigin/moon_warc/http_payload",
+  "moonbitlang/core/json",
+}

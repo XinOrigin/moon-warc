@@ -1,8 +1,26 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "xinorigin/moon_warc"
 
+import {
+  "xinorigin/moon_warc/cdxj",
+  "xinorigin/moon_warc/codec",
+  "xinorigin/moon_warc/validate",
+}
+
 // Values
+pub fn build_cdxj_index(Array[@codec.WarcRecord], filename? : String) -> @cdxj.CdxjIndex
+
+pub fn encode_archive(Array[@codec.WarcRecord], auto_digest? : Bool) -> Bytes
+
 pub fn library_version() -> String
+
+pub fn parse_archive(BytesView) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
+
+pub fn resolve_revisits(Array[@codec.WarcRecord]) -> Array[@validate.ResolvedRevisit]
+
+pub fn sample_archive_bytes() -> Bytes
+
+pub fn validate_archive(Array[@codec.WarcRecord]) -> @validate.ValidationReport
 
 // Errors
 
