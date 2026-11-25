@@ -1,0 +1,60 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/pipeline"
+
+import {
+  "moonbitlang/core/debug",
+  "xinorigin/moon_warc/codec",
+  "xinorigin/moon_warc/header",
+}
+
+// Values
+pub fn export_cdx11(Array[@codec.WarcRecord], filename? : String, include_header? : Bool) -> String
+
+pub fn export_jsonl(Array[@codec.WarcRecord], options? : JsonlOptions) -> String
+
+pub fn extract_subset(Array[@codec.WarcRecord], ArchiveFilter, include_warcinfo? : Bool) -> Bytes
+
+pub fn filter_records(Array[@codec.WarcRecord], ArchiveFilter, include_warcinfo? : Bool) -> Array[@codec.WarcRecord]
+
+pub fn matches_filter(@codec.WarcRecord, ArchiveFilter) -> Bool
+
+pub fn reassemble_segments(Array[@codec.WarcRecord]) -> Result[Array[@codec.WarcRecord], PipelineError]
+
+pub fn segment_record(@codec.WarcRecord, max_segment_bytes~ : Int32) -> Result[Array[@codec.WarcRecord], PipelineError]
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) struct ArchiveFilter {
+  warc_types : Array[@header.WarcType]?
+  surt_prefix : String?
+  mime_prefix : String?
+  status_min : Int32?
+  status_max : Int32?
+  date_from : String?
+  date_to : String?
+}
+pub fn ArchiveFilter::all() -> Self
+pub fn ArchiveFilter::new(warc_types? : Array[@header.WarcType], surt_prefix? : String, mime_prefix? : String, status_min? : Int32, status_max? : Int32, date_from? : String, date_to? : String) -> Self
+
+#derive(Eq, @debug.Debug)
+pub(all) struct JsonlOptions {
+  include_body_text : Bool
+  max_body_chars : Int32
+}
+pub fn JsonlOptions::default() -> Self
+
+#derive(Eq, @debug.Debug)
+pub(all) enum PipelineError {
+  InvalidSegmentSize(String)
+  MissingOriginRecord(String)
+  MissingSegmentNumber(String)
+  OutOfOrderSegment(String)
+  TotalLengthMismatch(String)
+  PayloadDigestMismatch(String)
+}
+
+// Type aliases
+
+// Traits

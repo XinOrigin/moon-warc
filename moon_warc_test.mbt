@@ -1,6 +1,6 @@
 ///|
 test "root facade sample_archive_bytes parses, validates, indexes, resolves revisits, and round-trips" {
-  assert_eq(@moon_warc.library_version(), "0.1.0")
+  assert_eq(@moon_warc.library_version(), "0.2.0")
   let raw = @moon_warc.sample_archive_bytes()
   let records = match @moon_warc.parse_archive(raw) {
     Ok(recs) => recs
@@ -81,4 +81,94 @@ test "root facade parse_archive rejects malformed stream and encode_archive pres
   assert_eq(parsed[0].payload, b"\x00\x01\x02\x03")
   let rep = @moon_warc.validate_archive(parsed)
   assert_true(rep.is_valid())
+}
+
+///|
+test "root facade segment_record and reassemble_segments round-trip with validation" {
+  let raw = @moon_warc.sample_archive_bytes()
+  let recs = match @moon_warc.parse_archive(raw) {
+    Ok(r) => r
+    Err(_) => fail("parse failed")
+  }
+  let orig = recs[2]
+  let segs = match @moon_warc.segment_record(orig, max_segment_bytes=48) {
+    Ok(s) => s
+    Err(_) => fail("segment_record failed")
+  }
+  assert_true(segs.length() >= 3)
+  let seg_wire = @moon_warc.encode_archive(segs)
+  let reparsed = match @moon_warc.parse_archive(seg_wire) {
+    Ok(r) => r
+    Err(_) => fail("parse segmented failed")
+  }
+  let val = @moon_warc.validate_archive([recs[1], ..reparsed])
+  assert_true(val.is_valid())
+  assert_eq(val.error_count, 0)
+  assert_eq(val.warning_count, 0)
+  let rebuilt = match @moon_warc.reassemble_segments(reparsed) {
+    Ok(r) => r
+    Err(_) => fail("reassemble failed")
+  }
+  assert_eq(rebuilt.length(), 1)
+  assert_eq(rebuilt[0].payload, orig.payload)
+  assert_true(@moon_warc.validate_archive(rebuilt).is_valid())
+}
+
+///|
+test "root facade filter_records and extract_subset produce self-consistent WARC" {
+  let raw = @moon_warc.sample_archive_bytes()
+  let recs = match @moon_warc.parse_archive(raw) {
+    Ok(r) => r
+    Err(_) => fail("parse failed")
+  }
+  let flt = @pipeline.ArchiveFilter::new(
+    surt_prefix="org,example,cdn)",
+    mime_prefix="application/json",
+  )
+  assert_eq(@moon_warc.filter_records(recs, flt).length(), 1)
+  let sub_wire = @moon_warc.extract_subset(recs, flt, include_warcinfo=true)
+  let sub_recs = match @moon_warc.parse_archive(sub_wire) {
+    Ok(r) => r
+    Err(_) => fail("parse subset failed")
+  }
+  assert_eq(sub_recs.length(), 2)
+  assert_true(@moon_warc.validate_archive(sub_recs).is_valid())
+}
+
+///|
+test "root facade export_cdx11 and export_jsonl reflect sample archive" {
+  let raw = @moon_warc.sample_archive_bytes()
+  let recs = match @moon_warc.parse_archive(raw) {
+    Ok(r) => r
+    Err(_) => fail("parse failed")
+  }
+  let cdx11 = @moon_warc.export_cdx11(recs, filename="sample-crawl-2026.warc")
+  assert_true(cdx11.has_prefix(" CDX N b a m s k r M S V g\n"))
+  let jsonl = @moon_warc.export_jsonl(recs)
+  assert_true(jsonl.contains("\"warc_type\":\"response\""))
+  assert_true(
+    jsonl.contains(
+      "\"text\":\"<!doctype html><html><body><h1>Hello WARC</h1></body></html>\\n\"",
+    ),
+  )
+}
+
+///|
+test "root facade validate_archive flags dangling segment origin with warning" {
+  let dangling_cont = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "continuation"),
+      ("WARC-Record-ID", "<urn:uuid:dangling-cont-2>"),
+      ("WARC-Date", "2026-11-25T12:00:00Z"),
+      ("WARC-Segment-Origin-ID", "<urn:uuid:missing-origin>"),
+      ("WARC-Segment-Number", "2"),
+      ("Content-Length", "4"),
+    ],
+    b"part",
+  )
+  let rep = @moon_warc.validate_archive([dangling_cont])
+  assert_true(rep.is_valid())
+  assert_eq(rep.warning_count, 1)
+  assert_eq(rep.diagnostics[0].code, "UNRESOLVED_SEGMENT_ORIGIN_ID")
 }

@@ -1,0 +1,10 @@
+import {
+  "moonbitlang/core/buffer",
+  "moonbitlang/core/encoding/utf8",
+  "xinorigin/moon_warc/header",
+  "xinorigin/moon_warc/codec",
+  "xinorigin/moon_warc/digest",
+  "xinorigin/moon_warc/http_payload",
+  "xinorigin/moon_warc/surt",
+  "xinorigin/moon_warc/cdxj",
+}

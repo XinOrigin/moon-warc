@@ -211,17 +211,19 @@ pub fn encode_record(record : WarcRecord, auto_digest~ : Bool = true) -> Bytes {
       )
     match h.warc_type() {
       Some(@header.Response) =>
-        match @http_payload.parse_http_response(record.payload) {
-          Ok(resp) =>
-            match @http_payload.extract_entity_body(resp) {
-              Ok(entity) =>
-                h = h.with_field(
-                  "WARC-Payload-Digest",
-                  @digest.format_warc_digest_sha256(entity),
-                )
-              Err(_) => ()
-            }
-          Err(_) => ()
+        if h.get("WARC-Segment-Number") is None {
+          match @http_payload.parse_http_response(record.payload) {
+            Ok(resp) =>
+              match @http_payload.extract_entity_body(resp) {
+                Ok(entity) =>
+                  h = h.with_field(
+                    "WARC-Payload-Digest",
+                    @digest.format_warc_digest_sha256(entity),
+                  )
+                Err(_) => ()
+              }
+            Err(_) => ()
+          }
         }
       _ => ()
     }

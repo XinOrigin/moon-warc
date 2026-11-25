@@ -1,7 +1,7 @@
 ///|
 /// Returns the library version string.
 pub fn library_version() -> String {
-  "0.1.0"
+  "0.2.0"
 }
 
 ///|
@@ -49,6 +49,62 @@ pub fn resolve_revisits(
 }
 
 ///|
+/// Splits an oversized WARC record into ISO 28500 §9 origin + `continuation` segments.
+pub fn segment_record(
+  record : @codec.WarcRecord,
+  max_segment_bytes~ : Int32,
+) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError] {
+  @pipeline.segment_record(record, max_segment_bytes~)
+}
+
+///|
+/// Reassembles ISO 28500 §9 segmented WARC records and verifies total lengths and digests.
+pub fn reassemble_segments(
+  records : Array[@codec.WarcRecord],
+) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError] {
+  @pipeline.reassemble_segments(records)
+}
+
+///|
+/// Filters WARC records matching `filter` predicates.
+pub fn filter_records(
+  records : Array[@codec.WarcRecord],
+  filter : @pipeline.ArchiveFilter,
+  include_warcinfo~ : Bool = false,
+) -> Array[@codec.WarcRecord] {
+  @pipeline.filter_records(records, filter, include_warcinfo~)
+}
+
+///|
+/// Extracts matching WARC records (preserving `warcinfo` by default) into a re-encoded WARC byte stream.
+pub fn extract_subset(
+  records : Array[@codec.WarcRecord],
+  filter : @pipeline.ArchiveFilter,
+  include_warcinfo~ : Bool = true,
+) -> Bytes {
+  @pipeline.extract_subset(records, filter, include_warcinfo~)
+}
+
+///|
+/// Exports WARC archival entries in lexicographically sorted 11-column CDX format.
+pub fn export_cdx11(
+  records : Array[@codec.WarcRecord],
+  filename~ : String = "archive.warc",
+  include_header~ : Bool = true,
+) -> String {
+  @pipeline.export_cdx11(records, filename~, include_header~)
+}
+
+///|
+/// Exports WARC records as RFC 8259 JSON Lines (JSONL) with optional UTF-8 body text extraction.
+pub fn export_jsonl(
+  records : Array[@codec.WarcRecord],
+  options~ : @pipeline.JsonlOptions = @pipeline.JsonlOptions::default(),
+) -> String {
+  @pipeline.export_jsonl(records, options~)
+}
+
+///|
 /// Generates a realistic multi-record ISO 28500 WARC/1.1 sample archive containing
 /// `warcinfo`, `request`, chunked HTTP `response`, `metadata`, `resource`, and `revisit`
 /// records encoded with SHA-256 block and payload digests.
@@ -58,7 +114,7 @@ pub fn sample_archive_bytes() -> Bytes {
     date="2026-11-25T12:00:00Z",
     filename="sample-crawl-2026.warc",
     version=@header.Warc1_1,
-    b"software: moon-warc/0.1.0\r\nformat: WARC File Format 1.1\r\nconformsTo: https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1/\r\n",
+    b"software: moon-warc/0.2.0\r\nformat: WARC File Format 1.1\r\nconformsTo: https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1/\r\n",
   )
   let req_rec = @codec.build_request(
     record_id="<urn:uuid:00000000-0000-4000-8000-000000000002>",
@@ -66,7 +122,7 @@ pub fn sample_archive_bytes() -> Bytes {
     target_uri="https://example.org/index.html",
     concurrent_to="<urn:uuid:00000000-0000-4000-8000-000000000003>",
     version=@header.Warc1_1,
-    b"GET /index.html HTTP/1.1\r\nHost: example.org\r\nUser-Agent: moon-warc/0.1.0\r\nAccept: text/html\r\n\r\n",
+    b"GET /index.html HTTP/1.1\r\nHost: example.org\r\nUser-Agent: moon-warc/0.2.0\r\nAccept: text/html\r\n\r\n",
   )
   let html_entity = b"<!doctype html><html><body><h1>Hello WARC</h1></body></html>\n"
   let resp_payload = b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nTransfer-Encoding: chunked\r\n\r\nf\r\n<!doctype html>\r\n2e\r\n<html><body><h1>Hello WARC</h1></body></html>\n\r\n0\r\n\r\n"

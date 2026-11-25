@@ -1,6 +1,7 @@
 import {
   "xinorigin/moon_warc" @warc,
   "xinorigin/moon_warc/header",
+  "xinorigin/moon_warc/pipeline",
 }
 
 pkgtype(kind: "executable")

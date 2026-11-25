@@ -87,4 +87,70 @@ fn main {
   if !eq {
     println("ERROR: round-trip mismatch")
   }
+
+  println("")
+  println("=== ISO 28500 §9 Segmentation & Reassembly ===")
+  let orig_resp = records[2]
+  match @warc.segment_record(orig_resp, max_segment_bytes=64) {
+    Err(e) => println("Segmentation failed: \{Debug::to_repr(e).to_string()}")
+    Ok(segs) => {
+      let seg_wire = @warc.encode_archive(segs)
+      match @warc.parse_archive(seg_wire) {
+        Err(e) =>
+          println("Segmented parse failed: \{Debug::to_repr(e).to_string()}")
+        Ok(seg_parsed) => {
+          let seg_rep = @warc.validate_archive(seg_parsed)
+          println(
+            "Segmented response (max=64B): segments=\{seg_parsed.length().to_string()} wire=\{seg_wire.length().to_string()}B valid=\{seg_rep.is_valid().to_string()} errors=\{seg_rep.error_count.to_string()} warnings=\{seg_rep.warning_count.to_string()}",
+          )
+          match @warc.reassemble_segments(seg_parsed) {
+            Err(e) =>
+              println("Reassembly failed: \{Debug::to_repr(e).to_string()}")
+            Ok(reassembled) => {
+              let payload_eq = reassembled.length() == 1 &&
+                reassembled[0].payload == orig_resp.payload
+              println(
+                "Reassembled records=\{reassembled.length().to_string()} payload_exact=\{payload_eq.to_string()} bytes=\{orig_resp.payload.length().to_string()}",
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+
+  println("")
+  println("=== Subset Filter & Export (CDX-11 / JSONL) ===")
+  let sub_filter = @pipeline.ArchiveFilter::new(
+    surt_prefix="org,example)",
+    status_min=200,
+    status_max=299,
+  )
+  let sub_wire = @warc.extract_subset(
+    records,
+    sub_filter,
+    include_warcinfo=true,
+  )
+  match @warc.parse_archive(sub_wire) {
+    Err(e) => println("Subset parse failed: \{Debug::to_repr(e).to_string()}")
+    Ok(sub_recs) => {
+      let sub_rep = @warc.validate_archive(sub_recs)
+      let cdx11 = @warc.export_cdx11(records, filename="sample-crawl-2026.warc")
+      let cdx11_lines : Array[String] = []
+      for lv in cdx11.split("\n") {
+        cdx11_lines.push(lv.to_owned())
+      }
+      let jsonl = @warc.export_jsonl(records)
+      let jsonl_lines : Array[String] = []
+      for lv in jsonl.split("\n") {
+        jsonl_lines.push(lv.to_owned())
+      }
+      println(
+        "Subset (surt='org,example)' status=200..299 +warcinfo): records=\{sub_recs.length().to_string()} wire=\{sub_wire.length().to_string()}B valid=\{sub_rep.is_valid().to_string()}",
+      )
+      println(
+        "CDX-11 lines=\{cdx11_lines.length().to_string()} (1 header + \{index.entries.length().to_string()} rows) | JSONL lines=\{jsonl_lines.length().to_string()}",
+      )
+    }
+  }
 }

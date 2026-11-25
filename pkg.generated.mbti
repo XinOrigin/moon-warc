@@ -4,6 +4,7 @@ package "xinorigin/moon_warc"
 import {
   "xinorigin/moon_warc/cdxj",
   "xinorigin/moon_warc/codec",
+  "xinorigin/moon_warc/pipeline",
   "xinorigin/moon_warc/validate",
 }
 
@@ -12,13 +13,25 @@ pub fn build_cdxj_index(Array[@codec.WarcRecord], filename? : String) -> @cdxj.C
 
 pub fn encode_archive(Array[@codec.WarcRecord], auto_digest? : Bool) -> Bytes
 
+pub fn export_cdx11(Array[@codec.WarcRecord], filename? : String, include_header? : Bool) -> String
+
+pub fn export_jsonl(Array[@codec.WarcRecord], options? : @pipeline.JsonlOptions) -> String
+
+pub fn extract_subset(Array[@codec.WarcRecord], @pipeline.ArchiveFilter, include_warcinfo? : Bool) -> Bytes
+
+pub fn filter_records(Array[@codec.WarcRecord], @pipeline.ArchiveFilter, include_warcinfo? : Bool) -> Array[@codec.WarcRecord]
+
 pub fn library_version() -> String
 
 pub fn parse_archive(BytesView) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
 
+pub fn reassemble_segments(Array[@codec.WarcRecord]) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
+
 pub fn resolve_revisits(Array[@codec.WarcRecord]) -> Array[@validate.ResolvedRevisit]
 
 pub fn sample_archive_bytes() -> Bytes
+
+pub fn segment_record(@codec.WarcRecord, max_segment_bytes~ : Int32) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
 
 pub fn validate_archive(Array[@codec.WarcRecord]) -> @validate.ValidationReport
 

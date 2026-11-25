@@ -214,7 +214,7 @@ def verify_cli_outputs() -> None:
         raise AssertionError("CLI stdout differs between native and js targets")
 
     required_markers = [
-        "moon-warc v0.1.0",
+        "moon-warc v0.2.0",
         "Sample archive size: 3188 bytes",
         "=== Records (6) ===",
         "type=warcinfo",
@@ -230,6 +230,10 @@ def verify_cli_outputs() -> None:
         "=== Revisit Resolution (1) ===",
         "kind=ByRecordId target=<urn:uuid:00000000-0000-4000-8000-000000000003>",
         "=== Round-trip byte equality: true (3188 == 3188 bytes) ===",
+        "=== ISO 28500 §9 Segmentation & Reassembly ===",
+        "payload_exact=true",
+        "=== Subset Filter & Export (CDX-11 / JSONL) ===",
+        "CDX-11 lines=4 (1 header + 3 rows) | JSONL lines=6",
     ]
     for marker in required_markers:
         if marker not in native_out:
@@ -531,6 +535,7 @@ def run_differential_probe() -> None:
             '  "xinorigin/moon_warc/header",\n'
             '  "xinorigin/moon_warc/surt",\n'
             '  "xinorigin/moon_warc/http_payload",\n'
+            '  "xinorigin/moon_warc/pipeline",\n'
             '}\n'
             'pkgtype(kind: "executable")\n',
             encoding="utf-8",
@@ -693,6 +698,70 @@ fn main {{
     }}
     Err(_) => println("NEG_6_PARSE_ERR")
   }}
+
+  match @warc.segment_record(recs_a[2], max_segment_bytes=32) {{
+    Ok(segs) => {{
+      let seg_wire = @warc.encode_archive(segs)
+      match @warc.parse_archive(seg_wire) {{
+        Ok(reparsed_segs) => {{
+          let seg_rep = @warc.validate_archive(reparsed_segs)
+          match @warc.reassemble_segments(reparsed_segs) {{
+            Ok(rebuilt) => {{
+              let re_hex = if rebuilt.length() == 1 {{
+                @digest.hex_encode(@digest.sha256(rebuilt[0].payload))
+              }} else {{
+                "BAD_LEN"
+              }}
+              println("PIPE_SEG|true|" + reparsed_segs.length().to_string() + "|" + (seg_rep.is_valid() && seg_rep.error_count == 0 && seg_rep.warning_count == 0).to_string() + "|" + re_hex)
+            }}
+            Err(_) => println("PIPE_SEG|REASSEMBLE_ERR")
+          }}
+        }}
+        Err(_) => println("PIPE_SEG|PARSE_ERR")
+      }}
+    }}
+    Err(_) => println("PIPE_SEG|SEG_ERR")
+  }}
+
+  let sub_wire = @warc.extract_subset(
+    recs_a,
+    @pipeline.ArchiveFilter::new(status_min=200, status_max=299),
+    include_warcinfo=true,
+  )
+  match @warc.parse_archive(sub_wire) {{
+    Ok(sub_recs) => {{
+      let sub_rep = @warc.validate_archive(sub_recs)
+      let t0 = if sub_recs.length() > 0 {{
+        match sub_recs[0].header.warc_type() {{ Some(t) => t.to_wire_string(); None => "none" }}
+      }} else {{ "none" }}
+      let t1 = if sub_recs.length() > 1 {{
+        match sub_recs[1].header.warc_type() {{ Some(t) => t.to_wire_string(); None => "none" }}
+      }} else {{ "none" }}
+      println("PIPE_SUB|" + sub_recs.length().to_string() + "|" + sub_rep.is_valid().to_string() + "|" + t0 + "|" + t1)
+    }}
+    Err(_) => println("PIPE_SUB|PARSE_ERR")
+  }}
+
+  let cdx11 = @warc.export_cdx11(recs_a, filename="oracle-a.warc")
+  for line in cdx11.split("\\n") {{
+    println("PIPE_CDX11|" + line.to_owned())
+  }}
+
+  let jsonl_a = @warc.export_jsonl(recs_a)
+  for line in jsonl_a.split("\\n") {{
+    println("PIPE_JSONL|" + line.to_owned())
+  }}
+
+  let sample_recs = match @warc.parse_archive(@warc.sample_archive_bytes()) {{
+    Ok(r) => r
+    Err(_) => {{
+      println("SAMPLE_ERR")
+      return
+    }}
+  }}
+  for line in @warc.export_jsonl([sample_recs[2]]).split("\\n") {{
+    println("PIPE_SAMPLE_JSONL|" + line.to_owned())
+  }}
 }}
 '''
         (probe_dir / "main.mbt").write_text(main_mbt, encoding="utf-8")
@@ -811,6 +880,46 @@ fn main {{
     assert "DUPLICATE_RECORD_ID" in neg6_codes
     assert "MISSING_WARC_PROFILE" in neg6_codes
 
+    # Verify v0.2.0 pipeline segmentation, reassembly, subsetting, CDX-11 & JSONL
+    pipe_seg = by_prefix["PIPE_SEG"][0].split("|")
+    assert pipe_seg[1] == "true", f"Segmentation failed: {pipe_seg}"
+    assert int(pipe_seg[2]) >= 3
+    assert pipe_seg[3] == "true"
+    assert pipe_seg[4] == hashlib.sha256(resp_http).hexdigest()
+
+    assert by_prefix["PIPE_SUB"] == ["PIPE_SUB|2|true|warcinfo|response"]
+
+    cdx11_lines = [line.split("|", 1)[1] for line in by_prefix["PIPE_CDX11"]]
+    assert cdx11_lines[0] == " CDX N b a m s k r M S V g"
+    assert len(cdx11_lines) == 5
+    for idx, row in enumerate(cdx11_lines[1:]):
+        cols = row.split(" ")
+        assert len(cols) == 11, f"Expected 11 CDX columns, got {cols}"
+        exp_surt, exp_ts, _, _, _, exp_dig = expected_cdx_tuples[idx]
+        assert cols[0] == exp_surt
+        assert cols[1] == exp_ts
+        assert cols[5] == exp_dig
+        assert cols[10] == "oracle-a.warc"
+
+    jsonl_lines = [line.split("|", 1)[1] for line in by_prefix["PIPE_JSONL"]]
+    assert len(jsonl_lines) == 6
+    parsed_jsonl = [json.loads(line) for line in jsonl_lines]
+    assert parsed_jsonl[0]["warc_type"] == "warcinfo"
+    assert parsed_jsonl[0]["text"] == wi_body.decode("utf-8")
+    # Archive A's chunked response contains non-UTF-8 \xff -> gracefully omits "text"
+    assert "text" not in parsed_jsonl[2]
+    # Binary application/octet-stream resource omits "text"
+    assert parsed_jsonl[3]["mime"] == "application/octet-stream"
+    assert "text" not in parsed_jsonl[3]
+
+    sample_jsonl = json.loads(by_prefix["PIPE_SAMPLE_JSONL"][0].split("|", 1)[1])
+    assert sample_jsonl["warc_type"] == "response"
+    assert sample_jsonl["status"] == 200
+    assert (
+        sample_jsonl["text"]
+        == "<!doctype html><html><body><h1>Hello WARC</h1></body></html>\n"
+    )
+
 
 def main() -> int:
     verify_cli_outputs()
@@ -818,7 +927,7 @@ def main() -> int:
     print(
         "PYTHON ORACLE PASSED: CLI (native+js), SHA-1/SHA-256 Base32 digests, "
         "chunked HTTP, SURT/CDXJ, revisit resolution, folded headers, binary payloads, "
-        "byte-for-byte roundtrip, and 6 tampered/negative archives verified."
+        "byte-for-byte roundtrip, 6 negative archives, and v0.2.0 segmentation/subset/CDX-11/JSONL verified."
     )
     return 0
 
