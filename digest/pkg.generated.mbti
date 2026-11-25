@@ -38,24 +38,14 @@ pub(all) enum DigestError {
 }
 
 pub struct Sha1Hasher {
-  mut h0 : UInt32
-  mut h1 : UInt32
-  mut h2 : UInt32
-  mut h3 : UInt32
-  mut h4 : UInt32
-  block : FixedArray[Byte]
-  mut block_len : Int32
-  mut total_bytes : UInt64
+  // private fields
 }
 pub fn Sha1Hasher::finalize(Self) -> Bytes
 pub fn Sha1Hasher::new() -> Self
 pub fn Sha1Hasher::update(Self, BytesView) -> Unit
 
 pub struct Sha256Hasher {
-  h : FixedArray[UInt32]
-  block : FixedArray[Byte]
-  mut block_len : Int32
-  mut total_bytes : UInt64
+  // private fields
 }
 pub fn Sha256Hasher::finalize(Self) -> Bytes
 pub fn Sha256Hasher::new() -> Self

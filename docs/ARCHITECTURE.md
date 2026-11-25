@@ -1,6 +1,6 @@
-# moon-warc Architecture Guide (`v0.2.0`)
+# moon-warc Architecture Guide (`v0.2.1`)
 
-`xinorigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)**, built as a layered **Sans-IO** protocol engine across 10 workspace packages (`moon.mod` version `0.2.0`, 8,192 lines of `.mbt` across 30 files, 163/163 tests passing across `wasm`, `wasm-gc`, `js`, and `native`).
+`xinorigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)**, built as a layered **Sans-IO** protocol engine across 10 workspace packages (`moon.mod` version `0.2.1`, 8,748 lines of `.mbt` across 30 files, 173/173 tests passing across `wasm`, `wasm-gc`, `js`, and `native`).
 
 ---
 
@@ -91,9 +91,9 @@ flowchart LR
 ```
 
 ### Memory & Offset Invariants
-1. **Sliding Compaction**: `WarcReader::compact_if_needed()` compacts consumed prefix bytes when `cursor >= 4096` or when the buffer is fully drained, avoiding O(n^2) shifting on small feeds while bounding retained memory.
-2. **Arbitrary Slice Independence**: `codec/fuzz_test.mbt` verifies identical decoded records, byte offsets, and `record_length` values across chunk boundaries of 1, 2, 3, 5, 7, 13, 32, and 64 bytes — including edge cases where `\r\n\r\n` straddles two chunks or appears inside binary `resource` payloads.
-3. **Exact Offset Tracking**: `total_consumed` tracks cumulative stream bytes across compaction cycles so downstream `CDXJ` / `CDX-11` / `JSONL` exporters receive exact archive byte offsets for random-access range reads.
+1. **Amortized Compaction & Header Scan Watermark**: `WarcReader::compact_if_needed()` resets exhausted buffers immediately and only compacts non-empty buffers when `cursor >= 4096 && cursor >= remaining`, while `header_scan_pos` tracks the `\r\n\r\n` scan watermark across incremental `feed()` calls so large `parse_all()` buffers and multi-chunk streams avoid `O(n²)` copying or rescanning.
+2. **Arbitrary Slice Independence**: `codec/fuzz_test.mbt` and `codec/codec_test.mbt` verify identical decoded records, byte offsets, and `record_length` values across chunk boundaries of 1, 2, 3, 5, 7, 13, 17, 32, and 64 bytes (including >64 KB multi-record streams across multiple compaction cycles) — including cases where `\r\n\r\n` straddles chunks or appears inside binary `resource` payloads.
+3. **Exact Offset Tracking & Overflow Guard**: `total_consumed` tracks cumulative stream bytes across compaction cycles using `checked_add_i32` (explicitly rejecting `Int32` wraparound) so downstream `CDXJ` / `CDX-11` / `JSONL` exporters receive accurate archive byte offsets within the `Int32` boundary.
 
 ---
 

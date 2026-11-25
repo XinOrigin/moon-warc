@@ -225,6 +225,14 @@ pub fn encode_record(record : WarcRecord, auto_digest~ : Bool = true) -> Bytes {
             Err(_) => ()
           }
         }
+      Some(@header.Resource) =>
+        if h.get("WARC-Segment-Number") is None &&
+          h.get("WARC-Payload-Digest") is Some(_) {
+          h = h.with_field(
+            "WARC-Payload-Digest",
+            @digest.format_warc_digest_sha256(record.payload),
+          )
+        }
       _ => ()
     }
     h

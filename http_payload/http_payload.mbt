@@ -34,13 +34,16 @@ pub struct HttpRequest {
 
 ///|
 fn find_header_split(raw : BytesView) -> (Int32, Int32)? {
-  match raw.find(b"\r\n\r\n") {
-    Some(idx) => Some((idx, idx + 4))
-    None =>
-      match raw.find(b"\n\n") {
-        Some(idx) => Some((idx, idx + 2))
-        None => None
+  match (raw.find(b"\r\n\r\n"), raw.find(b"\n\n")) {
+    (Some(a), Some(b)) =>
+      if a <= b {
+        Some((a, a + 4))
+      } else {
+        Some((b, b + 2))
       }
+    (Some(a), None) => Some((a, a + 4))
+    (None, Some(b)) => Some((b, b + 2))
+    (None, None) => None
   }
 }
 
@@ -71,6 +74,22 @@ fn parse_header_lines(
   for i in 1..<lines.length() {
     let line = lines[i]
     if line.is_empty() {
+      continue
+    }
+    if line.has_prefix(" ") || line.has_prefix("\t") {
+      if out.is_empty() {
+        return Err(InvalidHeaderLine(line))
+      }
+      let last_idx = out.length() - 1
+      let (prev_k, prev_v) = out[last_idx]
+      let folded = line.trim().to_owned()
+      out[last_idx] = if folded.is_empty() {
+        (prev_k, prev_v)
+      } else if prev_v.is_empty() {
+        (prev_k, folded)
+      } else {
+        (prev_k, prev_v + " " + folded)
+      }
       continue
     }
     match line.split_once(":") {
@@ -215,10 +234,17 @@ pub fn HttpResponse::location(self : HttpResponse) -> String? {
 ///|
 /// Reports whether `Transfer-Encoding` includes `chunked`.
 pub fn HttpResponse::is_chunked(self : HttpResponse) -> Bool {
-  match header_value(self.headers, "transfer-encoding") {
-    None => false
-    Some(v) => v.to_lower().contains("chunked")
+  for pair in self.headers {
+    if pair.0.to_lower() == "transfer-encoding" {
+      let lower_val = pair.1.to_lower()
+      for part in lower_val.split(",") {
+        if part.trim().to_owned() == "chunked" {
+          return true
+        }
+      }
+    }
   }
+  false
 }
 
 ///|

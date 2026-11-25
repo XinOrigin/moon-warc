@@ -214,7 +214,7 @@ def verify_cli_outputs() -> None:
         raise AssertionError("CLI stdout differs between native and js targets")
 
     required_markers = [
-        "moon-warc v0.2.0",
+        "moon-warc v0.2.1",
         "Sample archive size: 3188 bytes",
         "=== Records (6) ===",
         "type=warcinfo",
@@ -927,7 +927,7 @@ def main() -> int:
     print(
         "PYTHON ORACLE PASSED: CLI (native+js), SHA-1/SHA-256 Base32 digests, "
         "chunked HTTP, SURT/CDXJ, revisit resolution, folded headers, binary payloads, "
-        "byte-for-byte roundtrip, 6 negative archives, and v0.2.0 segmentation/subset/CDX-11/JSONL verified."
+        "byte-for-byte roundtrip, 6 negative archives, and v0.2.1 segmentation/subset/CDX-11/JSONL verified."
     )
     return 0
 

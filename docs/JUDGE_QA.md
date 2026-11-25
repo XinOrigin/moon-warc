@@ -1,16 +1,16 @@
-# 评委与社区技术问答速查 / Judge & Reviewer Technical Q&A (`v0.2.0`)
+# 设计问答与技术说明 / Design FAQ (`v0.2.1`)
 
-本文档整理了围绕 `XinOrigin/moon-warc` 架构选型、MoonBit 语言细节、验证方法论及 AI 可解释性的 10 个核心技术问题，便于参赛者现场答辩或回应社区评审。
+本文档记录 `XinOrigin/moon-warc` 在架构选型、MoonBit 语义细节、验证方法与 AI 使用披露上的 10 个常见问题。
 
 ---
 
 ### Q1：为什么选择实现纯 MoonBit 的 ISO 28500 WARC 解析与管线库？生态查重情况如何？
-- **查重事实**：立项前对 `mooncakes.io` 与 GitHub MoonBit 生态检索，已有 `jsonpath`、`cbor`、`toml`、`modbus`、`iso8583` 等格式库，但 **WARC / ISO 28500 / CDXJ 领域为空白（0 现有包）**。
-- **真实需求**：WARC 是 Internet Archive、Common Crawl 及大模型预训练网页语料库的标准载体。主流工具链依赖 Python/Java/C++，而 `moon-warc` 零第三方依赖，可一次编译运行于浏览器 `wasm`/`wasm-gc` 网页回放器、Edge JS 节点与 `native` 数据清洗管线。
+- **生态定位与差异化**：MoonBit 生态中已有 `xiaojing012/moon-warc`（`0.1.0`），提供基础的 WARC/1.1 帧封装、校验、分段与内存索引。本项目在此方向上补齐了跨平台最易失真的协议栈与语料管线能力：`WARC/1.0` 兼容、纯 MoonBit 增量 SHA-1/SHA-256 与 Base32/Hex 验真、RFC 9112 Chunked HTTP 实体提取、SURT/CDXJ/CDX-11 词法序索引、`revisit` 溯源、§9 分片重组及 RFC 8259 JSONL 导出。
+- **真实需求**：WARC 是 Internet Archive、Common Crawl 及大模型预训练网页语料库的标准载体。主流工具链依赖 Python/Java/C++，而 `moon-warc` 零第三方依赖，一次编写可编译到 `wasm`、`wasm-gc`、`js` 与 `native` 运行。
 
 ### Q2：核心解析器 `WarcReader` 为什么采用 Sans-IO 设计，而不直接封装文件/网络 I/O？
 - **跨四端零条件编译**：WASM 沙箱、浏览器 `ReadableStream`、Node/Deno JS 与 Native 文件句柄的 I/O 原语完全不同。Sans-IO 只负责状态机（`SeekHeader -> ReadPayload -> ReadTrailingCrlf`）和字节切片：`feed(BytesView)` 喂入、`next_record()` 增量产出、`finish()` 做 EOF 截断审计。
-- **缓冲优化**：消费游标达到 `>= 4096` 字节或耗尽缓冲时触发滑动压缩（`compact_if_needed`），避免每次读包全量搬移数组，同时通过 `total_consumed` 保证多块喂入后 `offset` 与 `record_length` 的字节精确性。
+- **均摊压缩与偏移守卫**：消费游标耗尽缓冲时会直接清空重置，仅在 `cursor >= 4096 && cursor >= remaining` 时触发 `compact_if_needed()` 压缩；同时通过 `header_scan_pos` 记录头部 `\r\n\r\n` 扫描水位避免反复重扫，并用 `checked_add_i32` 拦截 `total_consumed` / `record_length` 超出 `Int32` 上限的静默回绕（迁移偏移至 `Int64` 已纳入 `v0.3.0` 计划）。
 
 ### Q3：`WARC-Block-Digest` 与 `WARC-Payload-Digest` 有何区别？遇到 HTTP Chunked 如何处理？
 - **ISO 28500 语义差异**：`WARC-Block-Digest` 对记录体完整字节流（例如包含 `HTTP/1.1 200 OK` 状态行、HTTP 头和 chunk 帧）计算摘要；而对于 `response` 记录，`WARC-Payload-Digest` 必须穿透 HTTP 头与 `Transfer-Encoding: chunked` 分块边界，仅对**解码后的真实 HTTP 实体体（entity body）**计算哈希。
@@ -22,7 +22,7 @@
 
 ### Q5：`sha1` 和 `sha256` 在 `wasm` / `wasm-gc` / `js` / `native` 上如何保证比特级一致？
 - **确定性算术**：纯 MoonBit 实现的 FIPS 180-4 / RFC 3174 哈希器在 [`digest/sha1.mbt`](../digest/sha1.mbt) 与 [`digest/sha256.mbt`](../digest/sha256.mbt) 中显式使用 32/64 位无符号整型（`UInt32` / `UInt64`）和定长掩码位运算，完全规避 JS 53-bit float 精度截断及有符号右移语义差异。
-- **实测覆盖**：同一套包含密码学摘要、Fuzz 与负例的 **163 个测试用例**在四大编译目标全部跑通（`163/163 passed`），CLI 在 `--target native` 与 `--target js` 下的 stdout 字节级一致。
+- **实测覆盖**：同一套包含密码学摘要、Fuzz 与负例的 **173 个测试用例**在四大编译目标全部跑通（`173/173 passed`），CLI 在 `--target native` 与 `--target js` 下的 stdout 字节级一致。
 
 ### Q6：ISO 28500 §9 分片记录（`WARC-Segment-Number`）是如何解决 `auto_digest` 冲突的？
 - 当一条超长 HTTP `response` 被 `segment_record` 切分为第 1 段（origin）和第 `2..N` 段（`continuation`）时，第 1 段的 `payload` 仅包含前 `max_segment_bytes` 字节，但协议要求其保留整个完整逻辑实体的 `WARC-Payload-Digest`。
@@ -38,11 +38,11 @@
 - 本地验收门禁 [`scripts/verify_all.sh`](../scripts/verify_all.sh) 每次运行都会执行 `moon package --list` 并使用正则断言**未泄漏任何非包源码文件**。
 
 ### Q9：如何回应大赛规则中的“AI 辅助编程必须可解释、可审查、可验证”？
-- **透明披露**：仓库根目录 [`AI_USAGE.md`](../AI_USAGE.md) 明确界定了 AI 辅助范围（模块拆分、测试矩阵扩展、差分脚本骨架）与人工逐行审阅规则。
-- **拒绝“AI 自证循环”**：核心验证不依赖单侧单元测试，而是通过 [`scripts/verify_oracle.py`](../scripts/verify_oracle.py) 调用独立的 **Python 标准库（`hashlib`、`base64`、`json`）** 作为外部参照系（Differential Oracle），独立生成合规 WARC 归档、恶意篡改负例与分片/JSONL 校验用例并核对 MoonBit 端输出。
-- **公共契约固化**：通过 `moon info` 生成的各包 `pkg.generated.mbti` 对所有导出类型与签名进行静态契约锁定，任何无意 API 变动都会被 CI 门禁拦截。
+- **透明披露**：仓库根目录 [`AI_USAGE.md`](../AI_USAGE.md) 明确披露了 `v0.1.0`–`v0.2.0` 初始原型的高密度 AI 辅助过程，以及后续 `v0.2.1+` 缺陷修复与独立核查机制。
+- **跨后端与 Python 对照**：通过四编译目标全量测试（173 项），并在 `native` 探针下由 [`scripts/verify_oracle.py`](../scripts/verify_oracle.py) 调用 Python 标准库（`hashlib`、`base64`、`json`）核对摘要与 JSONL，结合 Python 参考函数检查分块 HTTP、SURT/CDXJ、折叠头、6 组负例及 §9 管线。
+- **公共契约固化**：通过 `moon info` 生成并跟踪各包 `pkg.generated.mbti` 接口文件，`v0.2.1` 已将 `WarcReader`、`Sha1Hasher`、`Sha256Hasher` 与 `CdxjIndex` 内部可变字段收紧至包内私有。
 
-### Q10：`v0.2.0` 之后下一步演进路线是什么？
+### Q10：`v0.2.1` 之后下一步演进路线是什么？
 - 已在 GitHub 公开规划两个后续 Issue 持续推进：
   1. **RFC 1952 多成员 `.warc.gz` 流式压缩与解压**：支持每条 WARC 记录独立 zlib/gzip member 压缩（Common Crawl 标准存储布局），依然保持 Sans-IO 字节流接口。
   2. **四目标吞吐与内存基准测试套件（Benchmark Harness）**：系统度量 `native`、`wasm`、`wasm-gc`、`js` 在百 MB 级流式解析、SHA-256 与 CDXJ 构建上的吞吐量与 GC 停顿表现，冲刺季度/年度榜单。

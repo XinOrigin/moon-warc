@@ -744,3 +744,49 @@ test "ArchiveFilter excludes records missing target_uri when surt_prefix is set"
   assert_false(@pipeline.matches_filter(recs[0], f))
   assert_true(@pipeline.matches_filter(recs[1], f))
 }
+
+///|
+test "reassemble_segments rejects continuation appearing before origin in stream" {
+  let recs = make_pipeline_fixture()
+  let segs = match @pipeline.segment_record(recs[2], max_segment_bytes=40) {
+    Ok(s) => s
+    Err(_) => fail("segment failed")
+  }
+  assert_true(segs.length() >= 2)
+  let reversed : Array[@codec.WarcRecord] = [segs[1], segs[0]]
+  for i in 2..<segs.length() {
+    reversed.push(segs[i])
+  }
+  assert_true(
+    @pipeline.reassemble_segments(reversed)
+    is Err(@pipeline.OutOfOrderSegment(_)),
+  )
+}
+
+///|
+test "export_cdx11 populates redirect Location column and sanitizes spaces" {
+  let redir = @codec.build_response(
+    record_id="<urn:uuid:redir-302>",
+    date="2026-11-26T00:10:00Z",
+    target_uri="https://example.org/old path",
+    b"HTTP/1.1 302 Found\r\nLocation: https://example.org/new location\r\nContent-Length: 0\r\n\r\n",
+  )
+  let parsed = match @codec.parse_all(@codec.encode_all([redir])) {
+    Ok(r) => r
+    Err(_) => fail("parse failed")
+  }
+  let cdx = @pipeline.export_cdx11(
+    parsed,
+    filename="my archive.warc",
+    include_header=false,
+  )
+  let cols : Array[String] = []
+  for c in cdx.split(" ") {
+    cols.push(c.to_owned())
+  }
+  assert_eq(cols.length(), 11)
+  assert_eq(cols[2], "https://example.org/old%20path")
+  assert_eq(cols[4], "302")
+  assert_eq(cols[6], "https://example.org/new%20location")
+  assert_eq(cols[10], "my%20archive.warc")
+}

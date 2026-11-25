@@ -182,6 +182,7 @@ pub fn reassemble_segments(
 ) -> Result[Array[@codec.WarcRecord], PipelineError] {
   let origin_ids : Map[String, Bool] = Map([])
   let cont_by_origin : Map[String, Array[(Int32, @codec.WarcRecord)]] = Map([])
+  let before_origin : Array[String] = []
   for rec in records {
     let hdr = rec.header
     match hdr.warc_type() {
@@ -230,6 +231,9 @@ pub fn reassemble_segments(
                   n
                 }
             }
+        }
+        if !origin_ids.contains(origin_id) {
+          before_origin.push(origin_id)
         }
         match cont_by_origin.get(origin_id) {
           Some(arr) => arr.push((seg_num, rec))
@@ -288,6 +292,11 @@ pub fn reassemble_segments(
       )
     }
   }
+  for oid in before_origin {
+    return Err(
+      OutOfOrderSegment("continuation record appeared before origin \{oid}"),
+    )
+  }
   let out : Array[@codec.WarcRecord] = []
   for rec in records {
     if rec.header.warc_type() == Some(@header.Continuation) {
@@ -313,9 +322,7 @@ pub fn reassemble_segments(
             ),
           )
         }
-        let buf = @buffer.Buffer(
-          capacity=rec.payload.length() * (segs.length() + 1),
-        )
+        let buf = @buffer.Buffer(capacity=rec.payload.length())
         buf.write_bytes(rec.payload)
         for i in 0..<segs.length() {
           let expected_seg = i + 2

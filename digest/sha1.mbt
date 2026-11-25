@@ -22,14 +22,15 @@ fn write_u32_be(buf : @buffer.Buffer, v : UInt32) -> Unit {
 ///|
 /// Incremental FIPS 180-4 SHA-1 hasher.
 pub struct Sha1Hasher {
-  mut h0 : UInt32
-  mut h1 : UInt32
-  mut h2 : UInt32
-  mut h3 : UInt32
-  mut h4 : UInt32
-  block : FixedArray[Byte]
-  mut block_len : Int32
-  mut total_bytes : UInt64
+  priv mut h0 : UInt32
+  priv mut h1 : UInt32
+  priv mut h2 : UInt32
+  priv mut h3 : UInt32
+  priv mut h4 : UInt32
+  priv block : FixedArray[Byte]
+  priv w : FixedArray[UInt32]
+  priv mut block_len : Int32
+  priv mut total_bytes : UInt64
 }
 
 ///|
@@ -42,6 +43,7 @@ pub fn Sha1Hasher::new() -> Sha1Hasher {
     h3: 0x10325476U,
     h4: 0xc3d2e1f0U,
     block: FixedArray::make(64, b'\x00'),
+    w: FixedArray::make(80, 0U),
     block_len: 0,
     total_bytes: 0UL,
   }
@@ -52,7 +54,7 @@ fn Sha1Hasher::compress_block(
   self : Sha1Hasher,
   block : FixedArray[Byte],
 ) -> Unit {
-  let w = FixedArray::make(80, 0U)
+  let w = self.w
   for i in 0..<16 {
     w[i] = read_u32_be_fixed(block, i * 4)
   }
@@ -113,6 +115,7 @@ pub fn Sha1Hasher::finalize(self : Sha1Hasher) -> Bytes {
     h3: self.h3,
     h4: self.h4,
     block: self.block.copy(),
+    w: FixedArray::make(80, 0U),
     block_len: self.block_len,
     total_bytes: self.total_bytes,
   }

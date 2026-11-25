@@ -13,35 +13,80 @@ pub fn JsonlOptions::default() -> JsonlOptions {
 }
 
 ///|
+fn sanitize_cdx_field(s : String) -> String {
+  if s.is_empty() {
+    return "-"
+  }
+  let sb = StringBuilder()
+  for ch in s {
+    if ch == ' ' {
+      sb.write_string("%20")
+    } else if ch == '\t' {
+      sb.write_string("%09")
+    } else if ch == '\r' {
+      sb.write_string("%0D")
+    } else if ch == '\n' {
+      sb.write_string("%0A")
+    } else {
+      sb.write_char(ch)
+    }
+  }
+  sb.to_string()
+}
+
+///|
 /// Exports records in classic 11-column space-delimited CDX format
-/// (`N b a m s k r M S V g`: SURT, timestamp, URL, MIME, status, digest, -, -, length, offset, filename),
+/// (`N b a m s k r M S V g`: SURT, timestamp, URL, MIME, status, digest, redirect, -, length, offset, filename),
 /// sorted lexicographically identically to `CdxjIndex`.
 pub fn export_cdx11(
   records : Array[@codec.WarcRecord],
   filename~ : String = "archive.warc",
   include_header~ : Bool = true,
 ) -> String {
+  let redirects : Map[String, String] = Map([])
+  for rec in records {
+    if rec.header.warc_type() == Some(@header.Response) {
+      match @http_payload.parse_http_response(rec.payload) {
+        Ok(resp) =>
+          match resp.location() {
+            Some(loc) =>
+              match @cdxj.from_record(rec, filename~) {
+                Some(entry) => redirects[@cdxj.format_line(entry)] = loc
+                None => ()
+              }
+            None => ()
+          }
+        Err(_) => ()
+      }
+    }
+  }
   let index = @cdxj.CdxjIndex::build(records, filename~)
   let lines : Array[String] = []
   if include_header {
     lines.push(" CDX N b a m s k r M S V g")
   }
   for e in index.entries {
-    let mime_s = e.mime.unwrap_or("-")
+    let surt_s = sanitize_cdx_field(e.surt)
+    let url_s = sanitize_cdx_field(e.url)
+    let mime_s = sanitize_cdx_field(e.mime.unwrap_or("-"))
     let status_s = match e.status {
       Some(st) => st.to_string()
       None => "-"
     }
-    let digest_s = e.digest.unwrap_or("-")
-    let file_s = if e.filename.is_empty() { "-" } else { e.filename }
+    let digest_s = sanitize_cdx_field(e.digest.unwrap_or("-"))
+    let redirect_s = match redirects.get(@cdxj.format_line(e)) {
+      Some(loc) => sanitize_cdx_field(loc)
+      None => "-"
+    }
+    let file_s = sanitize_cdx_field(e.filename)
     let row = [
-      e.surt,
+      surt_s,
       e.timestamp,
-      e.url,
+      url_s,
       mime_s,
       status_s,
       digest_s,
-      "-",
+      redirect_s,
       "-",
       e.length.to_string(),
       e.offset.to_string(),

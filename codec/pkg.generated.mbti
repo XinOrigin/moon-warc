@@ -43,10 +43,7 @@ pub(all) enum CodecError {
 type ReaderState
 
 pub struct WarcReader {
-  mut buf : Array[Byte]
-  mut cursor : Int32
-  mut total_consumed : Int32
-  mut state : ReaderState
+  // private fields
 }
 pub fn WarcReader::feed(Self, BytesView) -> Unit
 pub fn WarcReader::finish(Self) -> Result[Unit, CodecError]
