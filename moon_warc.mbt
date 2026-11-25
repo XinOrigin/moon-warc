@@ -1,7 +1,7 @@
 ///|
 /// Returns the library version string.
 pub fn library_version() -> String {
-  "0.2.0"
+  "0.2.1"
 }
 
 ///|
@@ -120,7 +120,7 @@ pub fn sample_archive_bytes() -> Bytes {
     date="2026-11-25T12:00:00Z",
     filename="sample-crawl-2026.warc",
     version=@header.Warc1_1,
-    b"software: moon-warc/0.2.0\r\nformat: WARC File Format 1.1\r\nconformsTo: https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1/\r\n",
+    b"software: moon-warc/0.2.1\r\nformat: WARC File Format 1.1\r\nconformsTo: https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1/\r\n",
   )
   let req_rec = @codec.build_request(
     record_id="<urn:uuid:00000000-0000-4000-8000-000000000002>",
@@ -128,7 +128,7 @@ pub fn sample_archive_bytes() -> Bytes {
     target_uri="https://example.org/index.html",
     concurrent_to="<urn:uuid:00000000-0000-4000-8000-000000000003>",
     version=@header.Warc1_1,
-    b"GET /index.html HTTP/1.1\r\nHost: example.org\r\nUser-Agent: moon-warc/0.2.0\r\nAccept: text/html\r\n\r\n",
+    b"GET /index.html HTTP/1.1\r\nHost: example.org\r\nUser-Agent: moon-warc/0.2.1\r\nAccept: text/html\r\n\r\n",
   )
   let html_entity = b"<!doctype html><html><body><h1>Hello WARC</h1></body></html>\n"
   let resp_payload = b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nTransfer-Encoding: chunked\r\n\r\nf\r\n<!doctype html>\r\n2e\r\n<html><body><h1>Hello WARC</h1></body></html>\n\r\n0\r\n\r\n"

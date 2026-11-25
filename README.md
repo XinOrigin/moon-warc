@@ -10,21 +10,21 @@
 
 ## 核心特性 / Key Features
 
-- **Sans-IO 流式解析与编码 (`codec`)**：基于状态机（`WarcReader`）的增量解码器，支持任意分片大小喂入与 4KB 滑动缓冲压缩，精确记录每条记录在流中的字节偏移（`offset`）与总长度（`record_length`）；提供标准记录构建器（`build_warcinfo`、`build_request`、`build_response`、`build_resource`、`build_metadata`、`build_revisit`、`build_conversion`、`make_record`）及自动摘要计算（`auto_digest`）。
+- **Sans-IO 流式解析与编码 (`codec`)**：基于状态机（`WarcReader`）的增量解码器，支持任意分片大小喂入、均摊缓冲压缩（`cursor >= 4096 && cursor >= remaining`）、头扫描水位与 `Int32` 溢出守卫，精确记录每条记录的 `offset` 与 `record_length`；提供标准记录构建器（`build_warcinfo`、`build_request`、`build_response`、`build_resource`、`build_metadata`、`build_revisit`、`build_conversion`、`make_record`）及自动摘要计算（`auto_digest`）。
 - **纯 MoonBit 密码学摘要与编码 (`digest`)**：内置完整增量式 FIPS 180-4 / RFC 3174 `Sha1Hasher`、`Sha256Hasher` 与 RFC 4648 `Base32` / `Hex` 编解码，支持 `WARC-Block-Digest` 与 `WARC-Payload-Digest`（如 `sha256:<base32>`、`sha1:<hex>`）格式化、解析与验真。
 - **HTTP/1.x 负载拆解与 Chunked 解码 (`http_payload`)**：对内嵌于 `request` / `response` 记录中的 HTTP 报文进行二进制安全的头体分离（支持正文包含 `\x00` 与非 UTF-8 字节），完整实现 RFC 9112 `Transfer-Encoding: chunked`（含 chunk extensions 与 trailer headers）解码，确保 `WARC-Payload-Digest` 针对真实 HTTP 实体体校验。
 - **SURT 规范化与 CDXJ 二分索引 (`surt`, `cdxj`)**：实现 URI 域名标签反转、默认端口剥离、`.` / `..` 路径段消解、查询参数按字典序排列（支持 IPv4 与 `[IPv6]` 字面量），并支持 CDXJ 行格式解析/转义格式化及基于 `String::lexical_compare` 的二分检索（`lookup_exact`、`lookup_prefix`、`lookup_closest`）。
 - **ISO 28500 合规验证与 Revisit 溯源 (`validate`)**：逐条检查强制头部、`<...>` 记录 ID 格式与重复性、严格 UTC `WARC-Date`（含闰年与 WARC 1.1 小数秒）、`Content-Length`、Block/Payload 摘要匹配度、§9 `continuation` 关联检查与跨记录悬空引用（共 **22 个**结构化 `Error` / `Warning` 诊断码）；并提供 `resolve_revisits`（优先 `WARC-Refers-To`，回退至 `(WARC-Target-URI, WARC-Payload-Digest)`）。
-- **ISO 28500 §9 分片重组、子集提取与数据管线导出 (`pipeline`)**：提供 `segment_record` / `reassemble_segments`（保留完整逻辑 `WARC-Payload-Digest` 并验证连续段号与总长）、多条件 `ArchiveFilter`（WARC 类型、SURT 前缀、MIME 前缀、HTTP 状态码区间、词法序日期区间）及自包含 `extract_subset`，并支持经典 11 列 `export_cdx11` 与面向大模型语料清洗的 RFC 8259 `export_jsonl`（自动解码 HTTP 分块文本与 UTF-8 安全转义）。
+- **ISO 28500 §9 分片重组、子集提取与数据管线导出 (`pipeline`)**：提供 `segment_record` / `reassemble_segments`（保留完整逻辑 `WARC-Payload-Digest` 并验证段序、连续段号与总长）、多条件 `ArchiveFilter`（WARC 类型、SURT 前缀、MIME 前缀、HTTP 状态码区间、词法序日期区间）及自包含 `extract_subset`，并支持经典 11 列 `export_cdx11`（填充 HTTP 重定向 `Location` 并转义字段空格）与文本清洗用 RFC 8259 `export_jsonl`。
 - **零外部依赖、全目标一致**：仅依赖 `moonbitlang/core`，无需 C FFI 或外部运行时库，可在浏览器（WASM/JS）、Node.js 与 Native 环境下零修改运行。
 
-> 更多设计细节请参见：[架构设计文档 (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md) 与 [评委技术问答速查 (`docs/JUDGE_QA.md`)](docs/JUDGE_QA.md)。
+> 更多设计细节请参见：[架构设计文档 (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md) 与 [设计问答与技术说明 (`docs/JUDGE_QA.md`)](docs/JUDGE_QA.md)。
 
 ---
 
 ## 作用域与明确非目标 / Scope & Non-Goals
 
-为保持核心协议层的纯洁性与可移植性，本仓库遵循明确的 **Sans-IO** 边界：
+核心协议层采用 **Sans-IO** 边界，与宿主 I/O 解耦：
 
 ### 在范围内 (In Scope)
 - ISO 28500:2009 (`WARC/1.0`) 与 ISO 28500:2017 (`WARC/1.1`) 头部解析、折叠行展开、序列化、流式帧定界与往返字节级无损编码。
@@ -42,13 +42,13 @@
 
 | 包名 (Package) | 路径 | 核心职责与公开接口 |
 | --- | --- | --- |
-| `xinorigin/moon_warc` | [`moon_warc.mbt`](moon_warc.mbt) | 根门面 API：`library_version`、`parse_archive`、`encode_archive`、`build_cdxj_index`、`validate_archive`、`resolve_revisits`、`segment_record`、`reassemble_segments`、`filter_records`、`extract_subset`、`export_cdx11`、`export_jsonl`、`sample_archive_bytes` |
+| `xinorigin/moon_warc` | [`moon_warc.mbt`](moon_warc.mbt) | 根门面 API：`library_version`、`new_reader`、`parse_archive`、`encode_archive`、`build_cdxj_index`、`validate_archive`、`resolve_revisits`、`segment_record`、`reassemble_segments`、`filter_records`、`extract_subset`、`export_cdx11`、`export_jsonl`、`sample_archive_bytes` |
 | `xinorigin/moon_warc/digest` | [`digest/`](digest/) | `sha1`、`sha256`、`Sha1Hasher`、`Sha256Hasher`、`base32_encode` / `base32_decode`、`hex_encode` / `hex_decode`、`format_warc_digest_sha1` / `format_warc_digest_sha256`、`parse_warc_digest`、`verify_warc_digest` |
 | `xinorigin/moon_warc/surt` | [`surt/`](surt/) | `parse_uri`、`to_surt`、`ParsedUri`、`SurtError` |
 | `xinorigin/moon_warc/http_payload` | [`http_payload/`](http_payload/) | `parse_http_request`、`parse_http_response`、`decode_chunked`、`extract_entity_body`、`header_value`、`HttpResponse` / `HttpRequest` |
 | `xinorigin/moon_warc/header` | [`header/`](header/) | `WarcVersion`、`WarcType`、`WarcDate`（`parse`、`to_cdxj_timestamp`、`to_iso_string`）、`WarcHeader`（`parse`、`serialize`、`with_field`、`without_field`、`segment_*` 辅助方法、大小写不敏感查找与折叠行合并） |
 | `xinorigin/moon_warc/codec` | [`codec/`](codec/) | 流式状态机 `WarcReader`（`new`、`feed`、`next_record`、`finish`）、`parse_all`、`encode_record`、`encode_all`、全类型 `build_*` / `make_record` 与 `WarcRecord` |
-| `xinorigin/moon_warc/cdxj` | [`cdxj/`](cdxj/) | `CdxjEntry`、`CdxjIndex`（`build`、`format_all`、`lookup_exact`、`lookup_prefix`、`lookup_closest`）、`from_record`、`format_line`、`parse_line` |
+| `xinorigin/moon_warc/cdxj` | [`cdxj/`](cdxj/) | `CdxjEntry`、`CdxjIndex`（`build`、`from_entries`、`format_all`、`lookup_exact`、`lookup_prefix`、`lookup_closest`）、`from_record`、`format_line`、`parse_line` |
 | `xinorigin/moon_warc/validate` | [`validate/`](validate/) | `validate_archive`、`ValidationReport`、`Diagnostic`（22 诊断码）、`Severity`、`resolve_revisits`、`ResolvedRevisit`、`RevisitMatchKind` |
 | `xinorigin/moon_warc/pipeline` | [`pipeline/`](pipeline/) | ISO 28500 §9 分片重组（`segment_record`、`reassemble_segments`、`PipelineError`）、多条件子集筛选（`ArchiveFilter`、`matches_filter`、`filter_records`、`extract_subset`）、`export_cdx11`、`export_jsonl`（`JsonlOptions`） |
 | `xinorigin/moon_warc/cmd/main` | [`cmd/main/`](cmd/main/) | 端到端命令行演示程序（解析、校验、CDXJ、Revisit、字节往返、§9 分片重组与子集过滤/CDX-11/JSONL 导出） |
@@ -161,7 +161,7 @@ let jsonl = @moon_warc.export_jsonl(records)
 执行 `moon run cmd/main --target native`（与 `--target js` 输出完全一致）：
 
 ```text
-moon-warc v0.2.0 — ISO 28500 WARC 1.0/1.1 Showcase
+moon-warc v0.2.1 — ISO 28500 WARC 1.0/1.1 Showcase
 Sample archive size: 3188 bytes
 
 === Records (6) ===
@@ -206,27 +206,27 @@ CDX-11 lines=4 (1 header + 3 rows) | JSONL lines=6
 | --- | --- | --- | --- |
 | 类型与 Lint | `moon check --deny-warn` | 通过（0 error, 0 warning） | 全模块及测试文件严格类型与告警检查 |
 | 格式与契约 | `moon fmt --check && moon info` | 通过（0 diff） | `.mbti` 公共接口契约与代码格式完全同步 |
-| `wasm` 测试 | `moon test --target wasm` | **163 / 163 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
-| `wasm-gc` 测试 | `moon test --target wasm-gc` | **163 / 163 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
-| `js` 测试 | `moon test --target js` | **163 / 163 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
-| `native` 测试 | `moon test --target native` | **163 / 163 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
+| `wasm` 测试 | `moon test --target wasm` | **173 / 173 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
+| `wasm-gc` 测试 | `moon test --target wasm-gc` | **173 / 173 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
+| `js` 测试 | `moon test --target js` | **173 / 173 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
+| `native` 测试 | `moon test --target native` | **173 / 173 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
 | CLI 演示 | `moon run cmd/main --target {native,js}` | 通过（双端 stdout 一致） | 6 记录 3188B WARC/1.1 解析、校验、CDXJ、Revisit、往返、§9 分片重组与子集/CDX-11/JSONL 导出 |
 | Python 差分预言机 | `python3 scripts/verify_oracle.py` | 通过（exit 0） | 核对 CLI、SHA-1/SHA-256 Base32、Chunked HTTP、SURT/CDXJ、Revisit、折叠头、二进制负载、6 组负例及 §9 分片/子集/CDX-11/JSONL |
 | 包打包洁净度 | `moon package --list` | 通过（零泄漏，52 个包文件） | 通过 [`.moonignore`](.moonignore) 排除 `scripts/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md`、`SUBMISSION_CHECKLIST.md` 等非包文件 |
 
-各包测试分布（共 **163 个**独立 `test` 用例，8,192 行 `.mbt` 源码）：
-- `pipeline`（[`pipeline/pipeline_test.mbt`](pipeline/pipeline_test.mbt)）：40
-- 根模块（[`moon_warc_test.mbt`](moon_warc_test.mbt) + [`moon_warc_hardening_test.mbt`](moon_warc_hardening_test.mbt)）：6 + 26 = 32
+各包测试分布（共 **173 个**独立 `test` 用例，8,748 行 `.mbt` 源码）：
+- `pipeline`（[`pipeline/pipeline_test.mbt`](pipeline/pipeline_test.mbt)）：42
+- 根模块（[`moon_warc_test.mbt`](moon_warc_test.mbt) + [`moon_warc_hardening_test.mbt`](moon_warc_hardening_test.mbt)）：7 + 26 = 33
 - `validate`（[`validate/validate_test.mbt`](validate/validate_test.mbt) + [`validate/negative_test.mbt`](validate/negative_test.mbt)）：5 + 26 = 31
-- `codec`（[`codec/codec_test.mbt`](codec/codec_test.mbt) + [`codec/fuzz_test.mbt`](codec/fuzz_test.mbt)）：6 + 22 = 28
-- `digest`（[`digest/digest_test.mbt`](digest/digest_test.mbt)）：7
-- `http_payload`（[`http_payload/http_payload_test.mbt`](http_payload/http_payload_test.mbt)）：7
+- `codec`（[`codec/codec_test.mbt`](codec/codec_test.mbt) + [`codec/fuzz_test.mbt`](codec/fuzz_test.mbt)）：8 + 22 = 30
+- `http_payload`（[`http_payload/http_payload_test.mbt`](http_payload/http_payload_test.mbt)）：9
+- `digest`（[`digest/digest_test.mbt`](digest/digest_test.mbt)）：8
+- `cdxj`（[`cdxj/cdxj_test.mbt`](cdxj/cdxj_test.mbt)）：7
 - `surt`（[`surt/surt_test.mbt`](surt/surt_test.mbt)）：7
 - `header`（[`header/header_test.mbt`](header/header_test.mbt)）：6
-- `cdxj`（[`cdxj/cdxj_test.mbt`](cdxj/cdxj_test.mbt)）：5
 
-### Python 差分预言机说明
-为避免“用自己写的测试测自己的实现”，[`scripts/verify_oracle.py`](scripts/verify_oracle.py) 使用 Python 标准库（`hashlib`、`base64`、`json` 等）独立构造和核对参考真值，与 MoonBit 端运行结果进行字节级交叉验证（包含多记录归档、折叠头、`\x00\r\n\r\n\xff` 二进制载荷、`ByRecordId` / `ByUriAndDigest` revisit 溯源、6 类篡改/截断负例归档，以及 `v0.2.0` 的 §9 分片重组、2xx 子集抽取、11 列 CDX 与 `json.loads()` 全量 JSONL 校验）。
+### Python 差分验证说明
+[`scripts/verify_oracle.py`](scripts/verify_oracle.py) 在 `native` 探针下调用 Python 标准库（`hashlib`、`base64`、`json`）独立核对 SHA-1/SHA-256 Base32 摘要与 RFC 8259 JSONL 解析，并搭配 Python 参考函数交叉验证 HTTP 分块解码、SURT/CDXJ、折叠头、`\x00\r\n\r\n\xff` 二进制载荷、`revisit` 溯源、6 类篡改/截断负例，以及 `v0.2.0` 的 §9 分片重组、2xx 子集抽取、11 列 CDX 与 `native`/`js` CLI 输出一致性。
 
 ---
 
@@ -242,7 +242,7 @@ CDX-11 lines=4 (1 header + 3 rows) | JSONL lines=6
 
 ## CI 工作流说明 / GitHub Actions Note
 
-仓库在 [`docs/ci.yml.example`](docs/ci.yml.example) 提供了完整的 GitHub Actions 多目标 CI 工作流模板。由于本地 `gh` CLI 令牌仅授予 `repo` 权限而未包含 `workflow` 权限，模板保留于 `docs/ci.yml.example`（未写入 `.github/workflows/`）；[`scripts/verify_all.sh`](scripts/verify_all.sh) 在本地执行与该模板完全一致的全套门禁检查。如需在 GitHub 端启用 Actions，可直接将该文件复制为 `.github/workflows/ci.yml`。
+仓库在 [`docs/ci.yml.example`](docs/ci.yml.example) 提供了 GitHub Actions 多目标 CI 工作流模板，可按需复制到 `.github/workflows/ci.yml` 启用；本地可直接运行 [`scripts/verify_all.sh`](scripts/verify_all.sh) 执行对应检查。
 
 ---
 

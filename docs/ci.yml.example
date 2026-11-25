@@ -46,6 +46,8 @@ jobs:
             moon run cmd/main --target native
             moon run cmd/main --target js
           fi
+      - name: Differential Oracle (Python)
+        run: python3 scripts/verify_oracle.py
       - name: Package archive stays clean
         run: |
           moon package --list >pkg-list.txt 2>&1
