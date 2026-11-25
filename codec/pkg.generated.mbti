@@ -1,0 +1,66 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/codec"
+
+import {
+  "moonbitlang/core/debug",
+  "xinorigin/moon_warc/header",
+}
+
+// Values
+pub fn build_conversion(record_id~ : String, date~ : String, target_uri~ : String, content_type~ : String, Bytes, refers_to? : String, version? : @header.WarcVersion) -> WarcRecord
+
+pub fn build_metadata(record_id~ : String, date~ : String, target_uri~ : String, Bytes, concurrent_to? : String, version? : @header.WarcVersion) -> WarcRecord
+
+pub fn build_request(record_id~ : String, date~ : String, target_uri~ : String, Bytes, concurrent_to? : String, version? : @header.WarcVersion) -> WarcRecord
+
+pub fn build_resource(record_id~ : String, date~ : String, target_uri~ : String, content_type~ : String, Bytes, version? : @header.WarcVersion) -> WarcRecord
+
+pub fn build_response(record_id~ : String, date~ : String, target_uri~ : String, Bytes, concurrent_to? : String, version? : @header.WarcVersion) -> WarcRecord
+
+pub fn build_revisit(record_id~ : String, date~ : String, target_uri~ : String, profile~ : String, payload_digest~ : String, refers_to? : String, refers_to_target_uri? : String, refers_to_date? : String, payload? : Bytes, version? : @header.WarcVersion) -> WarcRecord
+
+pub fn build_warcinfo(record_id~ : String, date~ : String, Bytes, filename? : String, version? : @header.WarcVersion) -> WarcRecord
+
+pub fn encode_all(Array[WarcRecord], auto_digest? : Bool) -> Bytes
+
+pub fn encode_record(WarcRecord, auto_digest? : Bool) -> Bytes
+
+pub fn make_record(@header.WarcVersion, Array[(String, String)], Bytes) -> WarcRecord
+
+pub fn parse_all(BytesView) -> Result[Array[WarcRecord], CodecError]
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) enum CodecError {
+  HeaderError(@header.HeaderError)
+  UnexpectedEof(String)
+  InvalidTrailingSeparator(String)
+  InvalidContentLength(String)
+}
+
+type ReaderState
+
+pub struct WarcReader {
+  mut buf : Array[Byte]
+  mut cursor : Int32
+  mut total_consumed : Int32
+  mut state : ReaderState
+}
+pub fn WarcReader::feed(Self, BytesView) -> Unit
+pub fn WarcReader::finish(Self) -> Result[Unit, CodecError]
+pub fn WarcReader::new() -> Self
+pub fn WarcReader::next_record(Self) -> Result[WarcRecord?, CodecError]
+
+#derive(Eq, @debug.Debug)
+pub(all) struct WarcRecord {
+  header : @header.WarcHeader
+  payload : Bytes
+  offset : Int32
+  record_length : Int32
+}
+
+// Type aliases
+
+// Traits
