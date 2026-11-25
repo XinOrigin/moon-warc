@@ -1,0 +1,73 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/digest"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn base32_decode(StringView) -> Result[Bytes, DigestError]
+
+pub fn base32_encode(BytesView) -> String
+
+pub fn format_warc_digest_sha1(BytesView) -> String
+
+pub fn format_warc_digest_sha256(BytesView) -> String
+
+pub fn hex_decode(StringView) -> Result[Bytes, DigestError]
+
+pub fn hex_encode(BytesView) -> String
+
+pub fn parse_warc_digest(StringView) -> Result[WarcDigest, DigestError]
+
+pub fn sha1(BytesView) -> Bytes
+
+pub fn sha256(BytesView) -> Bytes
+
+pub fn verify_warc_digest(StringView, BytesView) -> Result[Bool, DigestError]
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) enum DigestError {
+  InvalidAlgorithm(String)
+  InvalidEncoding(String)
+  InvalidFormat(String)
+  InvalidLength(String)
+}
+
+pub struct Sha1Hasher {
+  mut h0 : UInt32
+  mut h1 : UInt32
+  mut h2 : UInt32
+  mut h3 : UInt32
+  mut h4 : UInt32
+  block : FixedArray[Byte]
+  mut block_len : Int32
+  mut total_bytes : UInt64
+}
+pub fn Sha1Hasher::finalize(Self) -> Bytes
+pub fn Sha1Hasher::new() -> Self
+pub fn Sha1Hasher::update(Self, BytesView) -> Unit
+
+pub struct Sha256Hasher {
+  h : FixedArray[UInt32]
+  block : FixedArray[Byte]
+  mut block_len : Int32
+  mut total_bytes : UInt64
+}
+pub fn Sha256Hasher::finalize(Self) -> Bytes
+pub fn Sha256Hasher::new() -> Self
+pub fn Sha256Hasher::update(Self, BytesView) -> Unit
+
+#derive(Eq, @debug.Debug)
+pub(all) enum WarcDigest {
+  Sha1(Bytes)
+  Sha256(Bytes)
+  Other(String, String)
+}
+
+// Type aliases
+
+// Traits

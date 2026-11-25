@@ -1,0 +1,37 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/surt"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn parse_uri(StringView) -> Result[ParsedUri, SurtError]
+
+pub fn to_surt(StringView) -> Result[String, SurtError]
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub struct ParsedUri {
+  scheme : String
+  userinfo : String?
+  host : String
+  port : Int32?
+  path : String
+  query : String?
+  fragment : String?
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum SurtError {
+  EmptyUri
+  MissingScheme
+  MissingHost
+  InvalidPort(String)
+}
+
+// Type aliases
+
+// Traits
