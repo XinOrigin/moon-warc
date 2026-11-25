@@ -34,7 +34,7 @@
 
 ### Q8：你们声称“零依赖”，是如何证明没有意外打包临时脚本或文档到发布包里的？
 - [`moon.mod`](../moon.mod) 中无任何外部 `[deps]`，全仓库仅引用 `moonbitlang/core` 标准库。
-- 通过 [`.moonignore`](../.moonignore) 严格排除 `scripts/`、`.github/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md`、`SUBMISSION_CHECKLIST.md` 与 `pkg-list.txt`。
+- 通过 [`.moonignore`](../.moonignore) 严格排除 `scripts/`、`.github/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md` 与 `pkg-list.txt`。
 - 本地验收门禁 [`scripts/verify_all.sh`](../scripts/verify_all.sh) 每次运行都会执行 `moon package --list` 并使用正则断言**未泄漏任何非包源码文件**。
 
 ### Q9：如何回应大赛规则中的“AI 辅助编程必须可解释、可审查、可验证”？

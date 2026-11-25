@@ -212,7 +212,7 @@ CDX-11 lines=4 (1 header + 3 rows) | JSONL lines=6
 | `native` 测试 | `moon test --target native` | **173 / 173 passed (0 failed)** | 单元测试 + Fuzz + 负例 + 加固集成 + §9 管线测试 |
 | CLI 演示 | `moon run cmd/main --target {native,js}` | 通过（双端 stdout 一致） | 6 记录 3188B WARC/1.1 解析、校验、CDXJ、Revisit、往返、§9 分片重组与子集/CDX-11/JSONL 导出 |
 | Python 差分预言机 | `python3 scripts/verify_oracle.py` | 通过（exit 0） | 核对 CLI、SHA-1/SHA-256 Base32、Chunked HTTP、SURT/CDXJ、Revisit、折叠头、二进制负载、6 组负例及 §9 分片/子集/CDX-11/JSONL |
-| 包打包洁净度 | `moon package --list` | 通过（零泄漏，52 个包文件） | 通过 [`.moonignore`](.moonignore) 排除 `scripts/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md`、`SUBMISSION_CHECKLIST.md` 等非包文件 |
+| 包打包洁净度 | `moon package --list` | 通过（零泄漏，52 个包文件） | 通过 [`.moonignore`](.moonignore) 排除 `scripts/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md` 等非包文件 |
 
 各包测试分布（共 **173 个**独立 `test` 用例，8,748 行 `.mbt` 源码）：
 - `pipeline`（[`pipeline/pipeline_test.mbt`](pipeline/pipeline_test.mbt)）：42
