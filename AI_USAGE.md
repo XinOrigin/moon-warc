@@ -7,7 +7,7 @@
 ## 1. AI 协助范围 (How AI Assisted)
 
 本项目在设计与开发过程中使用了 AI 编码助手，主要辅助完成以下工作：
-- **架构拆解与文档起草**：将 ISO 28500 WARC 规范拆分为职责正交的子包（`digest`、`surt`、`http_payload`、`header`、`codec`、`cdxj`、`validate`、`pipeline`、根门面 `moon_warc` 与 `cmd/main`），并起草 README、项目说明、架构文档（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)）、设计问答（[`docs/JUDGE_QA.md`](docs/JUDGE_QA.md)）与变更日志。
+- **架构拆解与文档起草**：将 ISO 28500 WARC 规范拆分为职责正交的子包（`digest`、`surt`、`http_payload`、`header`、`codec`、`cdxj`、`validate`、`pipeline`、根门面 `moon_warc` 与 `cmd/main`），并起草 README、项目说明、架构文档（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)）、设计问答（[`docs/FAQ.md`](docs/FAQ.md)）与变更日志。
 - **样板代码与边界测试生成**：辅助编写结构化测试集，包括 RFC 3174 / FIPS 180-4 / RFC 4648 标准向量测试、多切片尺寸流式状态机测试（[`codec/fuzz_test.mbt`](codec/fuzz_test.mbt)）、畸形与篡改报文负例测试（[`validate/negative_test.mbt`](validate/negative_test.mbt)）、ISO 28500 §9 分片重组与过滤导出测试（[`pipeline/pipeline_test.mbt`](pipeline/pipeline_test.mbt)）以及根门面集成测试（[`moon_warc_test.mbt`](moon_warc_test.mbt)、[`moon_warc_hardening_test.mbt`](moon_warc_hardening_test.mbt)）。
 - **差分验证脚本编写**：辅助构建 [`scripts/verify_oracle.py`](scripts/verify_oracle.py)，在 `native` 下调用 Python 标准库（`hashlib`、`base64`、`json`）核对 SHA-1/SHA-256 Base32 摘要与 RFC 8259 JSONL 解析，并搭配 Python 参考函数交叉核对 HTTP chunked 解码、SURT/CDXJ 与 `v0.2.0` 分片/子集/CDX-11 输出。
 

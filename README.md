@@ -18,7 +18,7 @@
 - **ISO 28500 §9 分片重组、子集提取与数据管线导出 (`pipeline`)**：提供 `segment_record` / `reassemble_segments`（保留完整逻辑 `WARC-Payload-Digest` 并验证段序、连续段号与总长）、多条件 `ArchiveFilter`（WARC 类型、SURT 前缀、MIME 前缀、HTTP 状态码区间、词法序日期区间）及自包含 `extract_subset`，并支持经典 11 列 `export_cdx11`（填充 HTTP 重定向 `Location` 并转义字段空格）与文本清洗用 RFC 8259 `export_jsonl`。
 - **零外部依赖、全目标一致**：仅依赖 `moonbitlang/core`，无需 C FFI 或外部运行时库，可在浏览器（WASM/JS）、Node.js 与 Native 环境下零修改运行。
 
-> 更多设计细节请参见：[架构设计文档 (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md) 与 [设计问答与技术说明 (`docs/JUDGE_QA.md`)](docs/JUDGE_QA.md)。
+> 更多设计细节请参见：[架构设计文档 (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md) 与 [设计问答与技术说明 (`docs/FAQ.md`)](docs/FAQ.md)。
 
 ---
 

@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`header` Segmentation Helpers ([`header/header.mbt`](header/header.mbt))**: Added `WarcHeader::without_field`, `segment_number`, `segment_origin_id`, and `segment_total_length`.
 - **`validate` Continuation Rules ([`validate/validate.mbt`](validate/validate.mbt))**: Expanded from 18 to **22 diagnostic codes** by validating `continuation` records (`MISSING_SEGMENT_ORIGIN_ID`, `INVALID_SEGMENT_ORIGIN_ID`, `UNRESOLVED_SEGMENT_ORIGIN_ID`, `INVALID_SEGMENT_NUMBER`) and syntax-checking `WARC-Payload-Digest` on segmented origin records (`WARC-Segment-Number: 1`).
 - **Root Facade, CLI & Differential Oracle**: Exposed `segment_record`, `reassemble_segments`, `filter_records`, `extract_subset`, `export_cdx11`, and `export_jsonl` in [`moon_warc.mbt`](moon_warc.mbt), bumped `library_version()` and [`moon.mod`](moon.mod) to `0.2.0`, added §9 and subset/CDX-11/JSONL sections to [`cmd/main/main.mbt`](cmd/main/main.mbt), and expanded [`scripts/verify_oracle.py`](scripts/verify_oracle.py) to cross-check all `v0.2.0` pipeline outputs.
-- **Documentation & Project Proposal**: Added [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/JUDGE_QA.md`](docs/JUDGE_QA.md); updated [`README.md`](README.md), [`PROJECT_PROPOSAL.md`](PROJECT_PROPOSAL.md), and [`AI_USAGE.md`](AI_USAGE.md).
+- **Documentation & Project Proposal**: Added [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/FAQ.md`](docs/FAQ.md); updated [`README.md`](README.md), [`PROJECT_PROPOSAL.md`](PROJECT_PROPOSAL.md), and [`AI_USAGE.md`](AI_USAGE.md).
 
 ### Changed
 
