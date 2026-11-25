@@ -135,3 +135,24 @@ test "digest decode error edge cases" {
   assert_true(@digest.parse_warc_digest("sha1:") is Err(_))
   assert_true(@digest.parse_warc_digest(":abc") is Err(_))
 }
+
+///|
+test "digest incremental SHA-1 and SHA-256 hashers match one-shot over >1KB multi-block streams" {
+  let data = Bytes::makei(1500, i => ((i * 31 + 7) % 256).to_byte())
+  let h1 = @digest.Sha1Hasher::new()
+  let h256 = @digest.Sha256Hasher::new()
+  let mut pos = 0
+  let step = 67
+  while pos < data.length() {
+    let end = if pos + step > data.length() {
+      data.length()
+    } else {
+      pos + step
+    }
+    h1.update(data[pos:end])
+    h256.update(data[pos:end])
+    pos = end
+  }
+  assert_eq(h1.finalize(), @digest.sha1(data))
+  assert_eq(h256.finalize(), @digest.sha256(data))
+}

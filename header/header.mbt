@@ -386,7 +386,8 @@ pub fn WarcHeader::serialize(self : WarcHeader) -> Bytes {
     sb.write_string("\r\n")
   }
   sb.write_string("\r\n")
-  let buf = @buffer.Buffer(capacity=sb.to_string().length() * 2)
-  buf.write_string_utf8(sb.to_string())
+  let text = sb.to_string()
+  let buf = @buffer.Buffer(capacity=text.length() * 2)
+  buf.write_string_utf8(text)
   buf.to_bytes()
 }

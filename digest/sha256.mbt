@@ -20,10 +20,11 @@ fn rotr32(x : UInt32, n : Int32) -> UInt32 {
 ///|
 /// Incremental FIPS 180-4 SHA-256 hasher.
 pub struct Sha256Hasher {
-  h : FixedArray[UInt32]
-  block : FixedArray[Byte]
-  mut block_len : Int32
-  mut total_bytes : UInt64
+  priv h : FixedArray[UInt32]
+  priv block : FixedArray[Byte]
+  priv w : FixedArray[UInt32]
+  priv mut block_len : Int32
+  priv mut total_bytes : UInt64
 }
 
 ///|
@@ -35,6 +36,7 @@ pub fn Sha256Hasher::new() -> Sha256Hasher {
       0x1f83d9abU, 0x5be0cd19U,
     ],
     block: FixedArray::make(64, b'\x00'),
+    w: FixedArray::make(64, 0U),
     block_len: 0,
     total_bytes: 0UL,
   }
@@ -45,7 +47,7 @@ fn Sha256Hasher::compress_block(
   self : Sha256Hasher,
   block : FixedArray[Byte],
 ) -> Unit {
-  let w = FixedArray::make(64, 0U)
+  let w = self.w
   for i in 0..<16 {
     w[i] = read_u32_be_fixed(block, i * 4)
   }
@@ -109,6 +111,7 @@ pub fn Sha256Hasher::finalize(self : Sha256Hasher) -> Bytes {
   let clone : Sha256Hasher = {
     h: self.h.copy(),
     block: self.block.copy(),
+    w: FixedArray::make(64, 0U),
     block_len: self.block_len,
     total_bytes: self.total_bytes,
   }
