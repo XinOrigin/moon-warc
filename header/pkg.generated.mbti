@@ -1,0 +1,89 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/header"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) enum HeaderError {
+  InvalidVersion(String)
+  InvalidHeaderLine(String)
+  MissingRequiredHeader(String)
+  InvalidDate(String)
+  InvalidContentLength(String)
+  MissingTerminator
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) struct WarcDate {
+  year : Int32
+  month : Int32
+  day : Int32
+  hour : Int32
+  minute : Int32
+  second : Int32
+  fraction : String?
+  raw : String
+}
+pub fn WarcDate::parse(StringView) -> Result[Self, HeaderError]
+pub fn WarcDate::to_cdxj_timestamp(Self) -> String
+pub fn WarcDate::to_iso_string(Self) -> String
+
+#derive(Eq, @debug.Debug)
+pub(all) struct WarcHeader {
+  version : WarcVersion
+  fields : Array[(String, String)]
+}
+pub fn WarcHeader::block_digest(Self) -> String?
+pub fn WarcHeader::concurrent_to(Self) -> Array[String]
+pub fn WarcHeader::content_length(Self) -> Int32?
+pub fn WarcHeader::content_type(Self) -> String?
+pub fn WarcHeader::get(Self, StringView) -> String?
+pub fn WarcHeader::get_all(Self, StringView) -> Array[String]
+pub fn WarcHeader::identified_payload_type(Self) -> String?
+pub fn WarcHeader::new(WarcVersion, Array[(String, String)]) -> Self
+pub fn WarcHeader::parse(BytesView) -> Result[Self, HeaderError]
+pub fn WarcHeader::parse_content_length(Self) -> Result[Int32, HeaderError]
+pub fn WarcHeader::payload_digest(Self) -> String?
+pub fn WarcHeader::profile(Self) -> String?
+pub fn WarcHeader::record_id(Self) -> String?
+pub fn WarcHeader::refers_to(Self) -> String?
+pub fn WarcHeader::serialize(Self) -> Bytes
+pub fn WarcHeader::target_uri(Self) -> String?
+pub fn WarcHeader::truncated(Self) -> String?
+pub fn WarcHeader::warc_date(Self) -> String?
+pub fn WarcHeader::warc_type(Self) -> WarcType?
+pub fn WarcHeader::with_field(Self, String, String) -> Self
+
+#derive(Eq, @debug.Debug)
+pub(all) enum WarcType {
+  WarcInfo
+  Response
+  Resource
+  Request
+  Metadata
+  Revisit
+  Conversion
+  Continuation
+  Extension(String)
+}
+pub fn WarcType::parse(StringView) -> Self
+pub fn WarcType::to_wire_string(Self) -> String
+
+#derive(Eq, @debug.Debug)
+pub(all) enum WarcVersion {
+  Warc1_0
+  Warc1_1
+}
+pub fn WarcVersion::parse(StringView) -> Result[Self, HeaderError]
+pub fn WarcVersion::to_wire_string(Self) -> String
+
+// Type aliases
+
+// Traits
