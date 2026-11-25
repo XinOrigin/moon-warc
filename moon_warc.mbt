@@ -5,6 +5,12 @@ pub fn library_version() -> String {
 }
 
 ///|
+/// Creates a fresh incremental Sans-IO `WarcReader` for streaming WARC 1.0/1.1 archives.
+pub fn new_reader() -> @codec.WarcReader {
+  @codec.WarcReader::new()
+}
+
+///|
 /// Parses a complete ISO 28500 WARC 1.0/1.1 byte stream into records.
 pub fn parse_archive(
   raw : BytesView,

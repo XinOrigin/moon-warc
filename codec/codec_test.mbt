@@ -228,3 +228,104 @@ test "WarcReader compacts large multi-record stream beyond 4KB without losing of
   }
   assert_eq(expected_offset, wire.length())
 }
+
+///|
+test "parse_all and chunked WarcReader match exactly across >64KB multi-record compaction cycles" {
+  let body_a = Bytes::makei(2400, i => (48 + i % 40).to_byte())
+  let recs : Array[@codec.WarcRecord] = []
+  for idx in 0..<30 {
+    let mut rec = @codec.build_resource(
+      record_id="<urn:uuid:large-\{idx.to_string()}>",
+      date="2026-11-26T00:00:00Z",
+      target_uri="https://example.org/chunk/\{idx.to_string()}",
+      content_type="application/octet-stream",
+      body_a,
+    )
+    // Add long custom header lines to also exercise incremental header scanning
+    rec = {
+      header: rec.header.with_field(
+        "X-Padding", "abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz",
+      ),
+      payload: rec.payload,
+      offset: 0,
+      record_length: 0,
+    }
+    recs.push(rec)
+  }
+  let wire = @codec.encode_all(recs)
+  assert_true(wire.length() > 65536)
+  let full_parsed = match @codec.parse_all(wire) {
+    Ok(v) => v
+    Err(_) => fail("parse_all >64KB failed")
+  }
+  assert_eq(full_parsed.length(), 30)
+  for step in [1, 17] {
+    let reader = @codec.WarcReader::new()
+    let streamed : Array[@codec.WarcRecord] = []
+    let mut pos = 0
+    while pos < wire.length() {
+      let end = if pos + step > wire.length() {
+        wire.length()
+      } else {
+        pos + step
+      }
+      reader.feed(wire[pos:end])
+      while true {
+        match reader.next_record() {
+          Ok(Some(r)) => streamed.push(r)
+          Ok(None) => break
+          Err(_) => fail("chunked reader failed")
+        }
+      }
+      pos = end
+    }
+    assert_eq(reader.finish(), Ok(()))
+    assert_eq(streamed, full_parsed)
+  }
+}
+
+///|
+test "encode_record updates Resource WARC-Payload-Digest unless segmented" {
+  let base = @codec.build_resource(
+    record_id="<urn:uuid:res-digest-update>",
+    date="2026-11-26T00:00:00Z",
+    target_uri="https://example.org/asset.bin",
+    content_type="application/octet-stream",
+    b"initial-data",
+  )
+  let edited : @codec.WarcRecord = {
+    header: base.header.with_field(
+      "WARC-Payload-Digest",
+      @digest.format_warc_digest_sha256(b"initial-data"),
+    ),
+    payload: b"updated-data",
+    offset: 0,
+    record_length: 0,
+  }
+  let encoded = @codec.encode_record(edited, auto_digest=true)
+  let reparsed = match @codec.parse_all(encoded) {
+    Ok(v) => v
+    Err(_) => fail("reparse failed")
+  }
+  assert_eq(
+    reparsed[0].header.payload_digest(),
+    Some(@digest.format_warc_digest_sha256(b"updated-data")),
+  )
+  let full_digest = @digest.format_warc_digest_sha256(
+    b"updated-data-full-entity",
+  )
+  let segmented : @codec.WarcRecord = {
+    header: base.header
+    .with_field("WARC-Segment-Number", "1")
+    .with_field("WARC-Payload-Digest", full_digest),
+    payload: b"part-one",
+    offset: 0,
+    record_length: 0,
+  }
+  let seg_encoded = @codec.encode_record(segmented, auto_digest=true)
+  let seg_reparsed = match @codec.parse_all(seg_encoded) {
+    Ok(v) => v
+    Err(_) => fail("seg reparse failed")
+  }
+  assert_eq(seg_reparsed[0].header.payload_digest(), Some(full_digest))
+}

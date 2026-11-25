@@ -26,18 +26,34 @@ enum ReaderState {
 }
 
 ///|
+fn checked_add_i32(a : Int32, b : Int32) -> Int32? {
+  if b < 0 || a < 0 || a > 2147483647 - b {
+    None
+  } else {
+    Some(a + b)
+  }
+}
+
+///|
 /// Sans-IO incremental streaming parser for ISO 28500 WARC 1.0/1.1 archives.
 pub struct WarcReader {
-  mut buf : Array[Byte]
-  mut cursor : Int32
-  mut total_consumed : Int32
-  mut state : ReaderState
+  priv mut buf : Array[Byte]
+  priv mut cursor : Int32
+  priv mut header_scan_pos : Int32
+  priv mut total_consumed : Int32
+  priv mut state : ReaderState
 }
 
 ///|
 /// Creates a fresh streaming `WarcReader`.
 pub fn WarcReader::new() -> WarcReader {
-  { buf: [], cursor: 0, total_consumed: 0, state: SeekHeader, }
+  {
+    buf: [],
+    cursor: 0,
+    header_scan_pos: 0,
+    total_consumed: 0,
+    state: SeekHeader,
+  }
 }
 
 ///|
@@ -55,12 +71,25 @@ fn WarcReader::available(self : WarcReader) -> Int32 {
 
 ///|
 fn WarcReader::compact_if_needed(self : WarcReader) -> Unit {
-  if self.cursor >= 4096 ||
-    (self.cursor > 0 && self.cursor == self.buf.length()) {
-    let rem = self.available()
+  if self.cursor == 0 {
+    return
+  }
+  if self.cursor == self.buf.length() {
+    self.buf = []
+    self.cursor = 0
+    self.header_scan_pos = 0
+    return
+  }
+  let rem = self.available()
+  if self.cursor >= 4096 && self.cursor >= rem {
     let next : Array[Byte] = Array::make(rem, b'\x00')
     for i in 0..<rem {
       next[i] = self.buf[self.cursor + i]
+    }
+    self.header_scan_pos = if self.header_scan_pos > self.cursor {
+      self.header_scan_pos - self.cursor
+    } else {
+      0
     }
     self.buf = next
     self.cursor = 0
@@ -80,7 +109,11 @@ fn WarcReader::slice_bytes(
 ///|
 fn WarcReader::find_crlfcrlf(self : WarcReader) -> Int32? {
   let limit = self.buf.length() - 3
-  let mut i = self.cursor
+  let mut i = if self.header_scan_pos > self.cursor {
+    self.header_scan_pos
+  } else {
+    self.cursor
+  }
   while i < limit {
     if self.buf[i] == b'\r' &&
       self.buf[i + 1] == b'\n' &&
@@ -90,6 +123,7 @@ fn WarcReader::find_crlfcrlf(self : WarcReader) -> Int32? {
     }
     i = i + 1
   }
+  self.header_scan_pos = if limit > self.cursor { limit } else { self.cursor }
   None
 }
 
@@ -118,8 +152,19 @@ pub fn WarcReader::next_record(
               Ok(n) => n
               Err(e) => return Err(HeaderError(e))
             }
+            let next_consumed = match
+              checked_add_i32(self.total_consumed, hdr_len) {
+              Some(v) => v
+              None =>
+                return Err(
+                  InvalidContentLength(
+                    "WARC stream byte offset exceeds Int32 range",
+                  ),
+                )
+            }
             self.cursor = end_idx + 4
-            self.total_consumed = self.total_consumed + hdr_len
+            self.header_scan_pos = self.cursor
+            self.total_consumed = next_consumed
             self.state = ReadPayload(hdr, content_len, rec_offset, hdr_len)
           }
         }
@@ -128,15 +173,27 @@ pub fn WarcReader::next_record(
         if self.available() < content_len {
           return Ok(None)
         }
+        let body_plus_hdr = match checked_add_i32(hdr_len, content_len) {
+          Some(v) => v
+          None =>
+            return Err(
+              InvalidContentLength("WARC record length exceeds Int32 range"),
+            )
+        }
+        let next_consumed = match
+          checked_add_i32(self.total_consumed, content_len) {
+          Some(v) => v
+          None =>
+            return Err(
+              InvalidContentLength(
+                "WARC stream byte offset exceeds Int32 range",
+              ),
+            )
+        }
         let payload = self.slice_bytes(self.cursor, self.cursor + content_len)
         self.cursor = self.cursor + content_len
-        self.total_consumed = self.total_consumed + content_len
-        self.state = ReadTrailingCrlf(
-          hdr,
-          payload,
-          rec_offset,
-          hdr_len + content_len,
-        )
+        self.total_consumed = next_consumed
+        self.state = ReadTrailingCrlf(hdr, payload, rec_offset, body_plus_hdr)
       }
       ReadTrailingCrlf(hdr, payload, rec_offset, body_plus_hdr_len) => {
         if self.available() < 4 {
@@ -153,8 +210,25 @@ pub fn WarcReader::next_record(
             ),
           )
         }
+        let total_rec_len = match checked_add_i32(body_plus_hdr_len, 4) {
+          Some(v) => v
+          None =>
+            return Err(
+              InvalidContentLength("WARC record length exceeds Int32 range"),
+            )
+        }
+        let next_consumed = match checked_add_i32(self.total_consumed, 4) {
+          Some(v) => v
+          None =>
+            return Err(
+              InvalidContentLength(
+                "WARC stream byte offset exceeds Int32 range",
+              ),
+            )
+        }
         self.cursor = c + 4
-        self.total_consumed = self.total_consumed + 4
+        self.header_scan_pos = self.cursor
+        self.total_consumed = next_consumed
         self.state = SeekHeader
         self.compact_if_needed()
         return Ok(
@@ -162,7 +236,7 @@ pub fn WarcReader::next_record(
             header: hdr,
             payload,
             offset: rec_offset,
-            record_length: body_plus_hdr_len + 4,
+            record_length: total_rec_len,
           }),
         )
       }

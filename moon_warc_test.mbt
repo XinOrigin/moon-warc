@@ -172,3 +172,29 @@ test "root facade validate_archive flags dangling segment origin with warning" {
   assert_eq(rep.warning_count, 1)
   assert_eq(rep.diagnostics[0].code, "UNRESOLVED_SEGMENT_ORIGIN_ID")
 }
+
+///|
+test "root facade new_reader streams sample archive incrementally" {
+  let wire = @moon_warc.sample_archive_bytes()
+  let reader = @moon_warc.new_reader()
+  let streamed : Array[@codec.WarcRecord] = []
+  let mut pos = 0
+  while pos < wire.length() {
+    let end = if pos + 43 > wire.length() { wire.length() } else { pos + 43 }
+    reader.feed(wire[pos:end])
+    while true {
+      match reader.next_record() {
+        Ok(Some(r)) => streamed.push(r)
+        Ok(None) => break
+        Err(_) => fail("root reader failed")
+      }
+    }
+    pos = end
+  }
+  assert_eq(reader.finish(), Ok(()))
+  let batch = match @moon_warc.parse_archive(wire) {
+    Ok(v) => v
+    Err(_) => fail("batch parse failed")
+  }
+  assert_eq(streamed, batch)
+}

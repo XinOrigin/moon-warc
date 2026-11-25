@@ -23,6 +23,8 @@ pub fn filter_records(Array[@codec.WarcRecord], @pipeline.ArchiveFilter, include
 
 pub fn library_version() -> String
 
+pub fn new_reader() -> @codec.WarcReader
+
 pub fn parse_archive(BytesView) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
 
 pub fn reassemble_segments(Array[@codec.WarcRecord]) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
