@@ -1,0 +1,55 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/http_payload"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn decode_chunked(BytesView) -> Result[Bytes, HttpError]
+
+pub fn extract_entity_body(HttpResponse) -> Result[Bytes, HttpError]
+
+pub fn header_value(Array[(String, String)], StringView) -> String?
+
+pub fn parse_http_request(BytesView) -> Result[HttpRequest, HttpError]
+
+pub fn parse_http_response(BytesView) -> Result[HttpResponse, HttpError]
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) enum HttpError {
+  MissingHeaderTerminator
+  InvalidStartLine(String)
+  InvalidHeaderLine(String)
+  InvalidChunkSize(String)
+  TruncatedChunkBody
+  MissingChunkCrlf
+}
+
+#derive(Eq, @debug.Debug)
+pub struct HttpRequest {
+  method_name : String
+  target : String
+  version : String
+  headers : Array[(String, String)]
+  body : Bytes
+}
+
+#derive(Eq, @debug.Debug)
+pub struct HttpResponse {
+  version : String
+  status_code : Int32
+  reason : String
+  headers : Array[(String, String)]
+  body : Bytes
+}
+pub fn HttpResponse::content_type_mime(Self) -> String?
+pub fn HttpResponse::is_chunked(Self) -> Bool
+pub fn HttpResponse::location(Self) -> String?
+
+// Type aliases
+
+// Traits
