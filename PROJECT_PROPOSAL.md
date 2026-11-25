@@ -3,7 +3,7 @@
 ## 基本信息
 - 项目名称：`moon-warc`（包名 `xinorigin/moon_warc`）
 - 参赛者：`XinOrigin`
-- 联系方式：`<提交飞书报名表前替换为本人常用邮箱或微信号>`（公开仓库交流走 GitHub Issues）
+- 联系方式：GitHub @XinOrigin（技术交流走仓库 Issues，个人联系信息见报名表）
 - GitHub 仓库链接：https://github.com/XinOrigin/moon-warc （当前 `v0.2.1`，含 11 个有效功能与缺陷修复提交，无空提交或无意义拆分）
 - 项目方向与通用性说明：协议解析 / 网页归档数据工具库。ISO 28500 WARC 与 CDXJ/SURT 是网页归档、爬虫快照与大模型网页语料清洗的通用标准格式；内核采用零第三方依赖的 Sans-IO 设计，只依赖 `moonbitlang/core`，同一套代码可编译到 `wasm`、`wasm-gc`、`js` 和 `native` 四个目标复用。
 - 原创与移植说明：原创项目，非移植项目，不涉及其他开源项目代码移植（无原移植项目名称与来源链接）；参照 ISO 28500:2009/2017、RFC 9112、FIPS 180-4、RFC 4648、SURT/CDXJ、RFC 8259 从零设计与实现，采用 `Apache-2.0` 协议。
