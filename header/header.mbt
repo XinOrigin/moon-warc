@@ -214,6 +214,43 @@ pub fn WarcHeader::with_field(
 }
 
 ///|
+/// Returns a new `WarcHeader` without any field matching `name` (case-insensitive).
+pub fn WarcHeader::without_field(
+  self : WarcHeader,
+  name : StringView,
+) -> WarcHeader {
+  let target = name.to_owned().to_lower()
+  let next : Array[(String, String)] = []
+  for pair in self.fields {
+    if pair.0.to_lower() != target {
+      next.push(pair)
+    }
+  }
+  { version: self.version, fields: next, }
+}
+
+///|
+/// Parses a strict non-negative base-10 integer string with overflow guard.
+fn parse_nonneg_int(raw : String) -> Int32? {
+  let s = raw.trim().to_owned()
+  if s.is_empty() {
+    return None
+  }
+  let mut acc = 0
+  for i in 0..<s.length() {
+    let c = s[i].to_int()
+    if c < 48 || c > 57 {
+      return None
+    }
+    if acc > 200000000 {
+      return None
+    }
+    acc = acc * 10 + (c - 48)
+  }
+  Some(acc)
+}
+
+///|
 /// Returns the parsed `WARC-Type` if present.
 pub fn WarcHeader::warc_type(self : WarcHeader) -> WarcType? {
   match self.get("WARC-Type") {
@@ -241,24 +278,11 @@ pub fn WarcHeader::parse_content_length(
 ) -> Result[Int32, HeaderError] {
   match self.get("Content-Length") {
     None => Err(MissingRequiredHeader("Content-Length"))
-    Some(raw) => {
-      let s = raw.trim().to_owned()
-      if s.is_empty() {
-        return Err(InvalidContentLength(raw))
+    Some(raw) =>
+      match parse_nonneg_int(raw) {
+        Some(n) => Ok(n)
+        None => Err(InvalidContentLength(raw))
       }
-      let mut acc = 0
-      for i in 0..<s.length() {
-        let c = s[i].to_int()
-        if c < 48 || c > 57 {
-          return Err(InvalidContentLength(raw))
-        }
-        if acc > 200000000 {
-          return Err(InvalidContentLength(raw))
-        }
-        acc = acc * 10 + (c - 48)
-      }
-      Ok(acc)
-    }
   }
 }
 
@@ -323,6 +347,30 @@ pub fn WarcHeader::truncated(self : WarcHeader) -> String? {
 /// Returns `WARC-Identified-Payload-Type` if present.
 pub fn WarcHeader::identified_payload_type(self : WarcHeader) -> String? {
   self.get("WARC-Identified-Payload-Type")
+}
+
+///|
+/// Returns parsed `WARC-Segment-Number` if present and valid (non-negative integer).
+pub fn WarcHeader::segment_number(self : WarcHeader) -> Int32? {
+  match self.get("WARC-Segment-Number") {
+    Some(raw) => parse_nonneg_int(raw)
+    None => None
+  }
+}
+
+///|
+/// Returns `WARC-Segment-Origin-ID` if present.
+pub fn WarcHeader::segment_origin_id(self : WarcHeader) -> String? {
+  self.get("WARC-Segment-Origin-ID")
+}
+
+///|
+/// Returns parsed `WARC-Segment-Total-Length` if present and valid (non-negative integer).
+pub fn WarcHeader::segment_total_length(self : WarcHeader) -> Int32? {
+  match self.get("WARC-Segment-Total-Length") {
+    Some(raw) => parse_nonneg_int(raw)
+    None => None
+  }
 }
 
 ///|

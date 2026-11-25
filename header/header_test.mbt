@@ -102,3 +102,28 @@ test "WarcHeader typed accessors cover optional ISO 28500 fields" {
     Some("http://netpreserve.org/warc/1.1/revisit/identical-payload-digest"),
   )
 }
+
+///|
+test "WarcHeader segment helpers and without_field remove case-insensitively" {
+  let h = @header.WarcHeader::new(@header.Warc1_1, [
+    ("WARC-Type", "continuation"),
+    ("WARC-Record-ID", "<urn:uuid:orig-1-seg-2>"),
+    ("WARC-Date", "2026-11-25T10:00:00Z"),
+    ("WARC-Segment-Origin-ID", "<urn:uuid:orig-1>"),
+    ("WARC-Segment-Number", "2"),
+    ("WARC-Segment-Total-Length", "128"),
+    ("Content-Length", "28"),
+  ])
+  assert_eq(h.segment_number(), Some(2))
+  assert_eq(h.segment_origin_id(), Some("<urn:uuid:orig-1>"))
+  assert_eq(h.segment_total_length(), Some(128))
+  let stripped = h.without_field("warc-segment-number")
+  assert_eq(stripped.segment_number(), None)
+  assert_eq(stripped.segment_origin_id(), Some("<urn:uuid:orig-1>"))
+  let invalid = @header.WarcHeader::new(@header.Warc1_1, [
+    ("WARC-Segment-Number", "abc"),
+    ("WARC-Segment-Total-Length", "-1"),
+  ])
+  assert_eq(invalid.segment_number(), None)
+  assert_eq(invalid.segment_total_length(), None)
+}

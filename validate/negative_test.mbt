@@ -592,3 +592,79 @@ test "negative self-referential revisit does not self-resolve and dangling refs 
   assert_eq(resolved.length(), 1)
   assert_eq(resolved[0].match_kind, @validate.Unresolved)
 }
+
+///|
+test "segmented response and continuation records validate cleanly when well-formed" {
+  let full_entity = b"Hello segmented world!"
+  let seg1_payload = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello "
+  let seg2_payload = b"segmented world!"
+  let origin = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "response"),
+      ("WARC-Record-ID", "<urn:uuid:seg-orig-1>"),
+      ("WARC-Date", "2026-11-25T12:00:00Z"),
+      ("WARC-Target-URI", "https://example.org/large.txt"),
+      ("Content-Type", "application/http; msgtype=response"),
+      ("WARC-Segment-Number", "1"),
+      ("WARC-Payload-Digest", @digest.format_warc_digest_sha256(full_entity)),
+      ("WARC-Block-Digest", @digest.format_warc_digest_sha256(seg1_payload)),
+      ("Content-Length", seg1_payload.length().to_string()),
+    ],
+    seg1_payload,
+  )
+  let cont = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "continuation"),
+      ("WARC-Record-ID", "<urn:uuid:seg-orig-1-seg-2>"),
+      ("WARC-Date", "2026-11-25T12:00:00Z"),
+      ("WARC-Target-URI", "https://example.org/large.txt"),
+      ("WARC-Segment-Origin-ID", "<urn:uuid:seg-orig-1>"),
+      ("WARC-Segment-Number", "2"),
+      (
+        "WARC-Segment-Total-Length",
+        (seg1_payload.length() + seg2_payload.length()).to_string(),
+      ),
+      ("WARC-Block-Digest", @digest.format_warc_digest_sha256(seg2_payload)),
+      ("Content-Length", seg2_payload.length().to_string()),
+    ],
+    seg2_payload,
+  )
+  let report = @validate.validate_archive([origin, cont])
+  assert_true(report.is_valid())
+  assert_eq(report.error_count, 0)
+  assert_eq(report.warning_count, 0)
+}
+
+///|
+test "negative continuation records catch missing origin, invalid segment number, and unresolved origin warning" {
+  let missing_origin = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "continuation"),
+      ("WARC-Record-ID", "<urn:uuid:c-missing>"),
+      ("WARC-Date", "2026-11-25T12:00:00Z"),
+      ("WARC-Segment-Number", "2"),
+      ("Content-Length", "0"),
+    ],
+    b"",
+  )
+  let bad_seg_num = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "continuation"),
+      ("WARC-Record-ID", "<urn:uuid:c-bad-num>"),
+      ("WARC-Date", "2026-11-25T12:00:00Z"),
+      ("WARC-Segment-Origin-ID", "<urn:uuid:absent-orig>"),
+      ("WARC-Segment-Number", "1"),
+      ("Content-Length", "0"),
+    ],
+    b"",
+  )
+  let report = @validate.validate_archive([missing_origin, bad_seg_num])
+  assert_false(report.is_valid())
+  assert_true(neg_has_code(report, "MISSING_SEGMENT_ORIGIN_ID"))
+  assert_true(neg_has_code(report, "INVALID_SEGMENT_NUMBER"))
+  assert_true(neg_has_code(report, "UNRESOLVED_SEGMENT_ORIGIN_ID"))
+}

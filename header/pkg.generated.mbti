@@ -54,12 +54,16 @@ pub fn WarcHeader::payload_digest(Self) -> String?
 pub fn WarcHeader::profile(Self) -> String?
 pub fn WarcHeader::record_id(Self) -> String?
 pub fn WarcHeader::refers_to(Self) -> String?
+pub fn WarcHeader::segment_number(Self) -> Int32?
+pub fn WarcHeader::segment_origin_id(Self) -> String?
+pub fn WarcHeader::segment_total_length(Self) -> Int32?
 pub fn WarcHeader::serialize(Self) -> Bytes
 pub fn WarcHeader::target_uri(Self) -> String?
 pub fn WarcHeader::truncated(Self) -> String?
 pub fn WarcHeader::warc_date(Self) -> String?
 pub fn WarcHeader::warc_type(Self) -> WarcType?
 pub fn WarcHeader::with_field(Self, String, String) -> Self
+pub fn WarcHeader::without_field(Self, StringView) -> Self
 
 #derive(Eq, @debug.Debug)
 pub(all) enum WarcType {

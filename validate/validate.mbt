@@ -222,6 +222,70 @@ pub fn validate_archive(records : Array[@codec.WarcRecord]) -> ValidationReport 
               "missing mandatory WARC-Profile for revisit record",
             )
         }
+      Some(@header.Continuation) => {
+        match hdr.segment_origin_id() {
+          None =>
+            push_diag(
+              diags,
+              Error,
+              "MISSING_SEGMENT_ORIGIN_ID",
+              idx,
+              off,
+              "missing mandatory WARC-Segment-Origin-ID for continuation record",
+            )
+          Some(oid) =>
+            if oid.trim().is_empty() {
+              push_diag(
+                diags,
+                Error,
+                "MISSING_SEGMENT_ORIGIN_ID",
+                idx,
+                off,
+                "WARC-Segment-Origin-ID cannot be empty for continuation record",
+              )
+            } else if !is_uri_angle_wrapped(oid) {
+              push_diag(
+                diags,
+                Error,
+                "INVALID_SEGMENT_ORIGIN_ID",
+                idx,
+                off,
+                "WARC-Segment-Origin-ID must be enclosed in <...>: \{oid}",
+              )
+            } else if !id_counts.contains(oid) {
+              push_diag(
+                diags,
+                Warning,
+                "UNRESOLVED_SEGMENT_ORIGIN_ID",
+                idx,
+                off,
+                "WARC-Segment-Origin-ID target not found in archive: \{oid}",
+              )
+            }
+        }
+        match hdr.segment_number() {
+          Some(n) =>
+            if n < 2 {
+              push_diag(
+                diags,
+                Error,
+                "INVALID_SEGMENT_NUMBER",
+                idx,
+                off,
+                "WARC-Segment-Number must be >= 2 for continuation record",
+              )
+            }
+          None =>
+            push_diag(
+              diags,
+              Error,
+              "INVALID_SEGMENT_NUMBER",
+              idx,
+              off,
+              "missing or invalid WARC-Segment-Number for continuation record",
+            )
+        }
+      }
       _ => ()
     }
     match hdr.block_digest() {
@@ -251,88 +315,103 @@ pub fn validate_archive(records : Array[@codec.WarcRecord]) -> ValidationReport 
     }
     match hdr.payload_digest() {
       Some(pd) =>
-        match wt_opt {
-          Some(@header.Revisit) =>
-            match @digest.parse_warc_digest(pd) {
-              Ok(_) => ()
-              Err(_) =>
-                push_diag(
-                  diags,
-                  Error,
-                  "INVALID_PAYLOAD_DIGEST",
-                  idx,
-                  off,
-                  "invalid WARC-Payload-Digest header: \{pd}",
-                )
-            }
-          Some(@header.Response) =>
-            match @http_payload.parse_http_response(rec.payload) {
-              Err(_) =>
-                push_diag(
-                  diags,
-                  Error,
-                  "INVALID_HTTP_PAYLOAD",
-                  idx,
-                  off,
-                  "failed to parse HTTP response for WARC-Payload-Digest verification",
-                )
-              Ok(resp) =>
-                match @http_payload.extract_entity_body(resp) {
-                  Err(_) =>
-                    push_diag(
-                      diags,
-                      Error,
-                      "INVALID_HTTP_CHUNKED_BODY",
-                      idx,
-                      off,
-                      "failed to decode chunked HTTP body for WARC-Payload-Digest verification",
-                    )
-                  Ok(entity) =>
-                    match @digest.verify_warc_digest(pd, entity) {
-                      Ok(true) => ()
-                      Ok(false) =>
-                        push_diag(
-                          diags,
-                          Error,
-                          "PAYLOAD_DIGEST_MISMATCH",
-                          idx,
-                          off,
-                          "WARC-Payload-Digest verification failed",
-                        )
-                      Err(_) =>
-                        push_diag(
-                          diags,
-                          Error,
-                          "INVALID_PAYLOAD_DIGEST",
-                          idx,
-                          off,
-                          "invalid WARC-Payload-Digest header: \{pd}",
-                        )
-                    }
-                }
-            }
-          _ =>
-            match @digest.verify_warc_digest(pd, rec.payload) {
-              Ok(true) => ()
-              Ok(false) =>
-                push_diag(
-                  diags,
-                  Error,
-                  "PAYLOAD_DIGEST_MISMATCH",
-                  idx,
-                  off,
-                  "WARC-Payload-Digest verification failed",
-                )
-              Err(_) =>
-                push_diag(
-                  diags,
-                  Error,
-                  "INVALID_PAYLOAD_DIGEST",
-                  idx,
-                  off,
-                  "invalid WARC-Payload-Digest header: \{pd}",
-                )
-            }
+        if hdr.segment_number() == Some(1) {
+          match @digest.parse_warc_digest(pd) {
+            Ok(_) => ()
+            Err(_) =>
+              push_diag(
+                diags,
+                Error,
+                "INVALID_PAYLOAD_DIGEST",
+                idx,
+                off,
+                "invalid WARC-Payload-Digest header: \{pd}",
+              )
+          }
+        } else {
+          match wt_opt {
+            Some(@header.Revisit) =>
+              match @digest.parse_warc_digest(pd) {
+                Ok(_) => ()
+                Err(_) =>
+                  push_diag(
+                    diags,
+                    Error,
+                    "INVALID_PAYLOAD_DIGEST",
+                    idx,
+                    off,
+                    "invalid WARC-Payload-Digest header: \{pd}",
+                  )
+              }
+            Some(@header.Response) =>
+              match @http_payload.parse_http_response(rec.payload) {
+                Err(_) =>
+                  push_diag(
+                    diags,
+                    Error,
+                    "INVALID_HTTP_PAYLOAD",
+                    idx,
+                    off,
+                    "failed to parse HTTP response for WARC-Payload-Digest verification",
+                  )
+                Ok(resp) =>
+                  match @http_payload.extract_entity_body(resp) {
+                    Err(_) =>
+                      push_diag(
+                        diags,
+                        Error,
+                        "INVALID_HTTP_CHUNKED_BODY",
+                        idx,
+                        off,
+                        "failed to decode chunked HTTP body for WARC-Payload-Digest verification",
+                      )
+                    Ok(entity) =>
+                      match @digest.verify_warc_digest(pd, entity) {
+                        Ok(true) => ()
+                        Ok(false) =>
+                          push_diag(
+                            diags,
+                            Error,
+                            "PAYLOAD_DIGEST_MISMATCH",
+                            idx,
+                            off,
+                            "WARC-Payload-Digest verification failed",
+                          )
+                        Err(_) =>
+                          push_diag(
+                            diags,
+                            Error,
+                            "INVALID_PAYLOAD_DIGEST",
+                            idx,
+                            off,
+                            "invalid WARC-Payload-Digest header: \{pd}",
+                          )
+                      }
+                  }
+              }
+            _ =>
+              match @digest.verify_warc_digest(pd, rec.payload) {
+                Ok(true) => ()
+                Ok(false) =>
+                  push_diag(
+                    diags,
+                    Error,
+                    "PAYLOAD_DIGEST_MISMATCH",
+                    idx,
+                    off,
+                    "WARC-Payload-Digest verification failed",
+                  )
+                Err(_) =>
+                  push_diag(
+                    diags,
+                    Error,
+                    "INVALID_PAYLOAD_DIGEST",
+                    idx,
+                    off,
+                    "invalid WARC-Payload-Digest header: \{pd}",
+                  )
+              }
+          }
         }
       None => ()
     }

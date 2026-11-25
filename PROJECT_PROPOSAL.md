@@ -6,12 +6,13 @@
 
 ## 基本信息
 
-- **项目名称**：`moon-warc`（包名：`xinorigin/moon_warc`）
+- **项目名称**：`moon-warc`（包名：`xinorigin/moon_warc`，当前版本 `v0.2.0`）
 - **GitHub ID**：`XinOrigin`
 - **开源仓库**：`https://github.com/XinOrigin/moon-warc`
 - **开源协议**：`Apache-2.0`
-- **技术栈**：纯 MoonBit（零第三方外部依赖，仅使用 `moonbitlang/core`）
+- **技术栈**：纯 MoonBit（零第三方外部依赖，仅使用 `moonbitlang/core`；10 个工作区包、30 个 `.mbt` 文件共 8,192 行源码）
 - **适用平台**：`wasm`、`wasm-gc`、`js`、`native` 四目标全量兼容
+- **扩展阅读**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | [`docs/JUDGE_QA.md`](docs/JUDGE_QA.md)
 
 ---
 
@@ -31,9 +32,9 @@
 
 1. 完整实现 **ISO 28500 WARC 1.0 / 1.1** 流式读写编解码器（覆盖全 8 类标准记录类型及自定义扩展类型），支持任意字节分片喂入与字节级无损往返。
 2. 内置纯 MoonBit **FIPS 180-4 / RFC 3174 SHA-1 & SHA-256** 与 **RFC 4648 Base32 / Hex** 实现，以及 **RFC 9112 HTTP/1.x** 拆包与 `Transfer-Encoding: chunked` 解码，保证 Payload 摘要对真实 HTTP 实体体精确验真。
-3. 实现 **SURT** URL 规范化、**CDXJ** 索引构建/解析以及基于词法序的高效二分查找（精确、前缀、最近时间戳）。
-4. 提供结构化的 **ISO 28500 合规审计报告**（错误/警告分级、18 个诊断码、记录序号与字节偏移定位）以及 **`revisit` 记录双策略去重溯源**。
-5. 通过 **4 编译目标全量测试（116/116 通过）** 与 **独立 Python 差分预言机（`hashlib` / `base64` / `json`）** 交叉验证，交付高质量、可直接复用的 MoonBit 基础设施。
+3. 实现 **SURT** URL 规范化、**CDXJ / CDX-11** 索引构建解析，以及基于词法序的高效二分查找（精确、前缀、最近时间戳）与多维度子集提取（`ArchiveFilter` / `extract_subset`）。
+4. 完整支持 **ISO 28500 §9 大文件分片与流式重组**（`segment_record` / `reassemble_segments`）、结构化合规审计（**22 个诊断码**，含 `continuation` 规则）、**`revisit` 双策略溯源**，以及面向大模型语料清洗的 **RFC 8259 JSONL 导出**（`export_jsonl`）。
+5. 通过 **4 编译目标全量测试（163 / 163 通过，652 次后端执行）** 与 **独立 Python 差分预言机（`hashlib` / `base64` / `json`）** 交叉验证，交付高质量、可直接复用的 MoonBit 基础设施。
 
 ---
 
@@ -50,17 +51,19 @@
 
 | 模块 / 文件 | 交付内容与定位 |
 | --- | --- |
-| [`moon_warc.mbt`](moon_warc.mbt) | 根门面 API（`library_version`、`parse_archive`、`encode_archive`、`build_cdxj_index`、`validate_archive`、`resolve_revisits`、`sample_archive_bytes`） |
+| [`moon_warc.mbt`](moon_warc.mbt) | 根门面 API（`library_version`、`parse_archive`、`encode_archive`、`build_cdxj_index`、`validate_archive`、`resolve_revisits`、`segment_record`、`reassemble_segments`、`filter_records`、`extract_subset`、`export_cdx11`、`export_jsonl`、`sample_archive_bytes`） |
 | [`digest/`](digest/) | 纯 MoonBit 增量 SHA-1/SHA-256、Base32/Hex 编解码、`WARC-*-Digest` 解析与校验 |
 | [`surt/`](surt/) | URI 解析与 SURT 规范化（域名反转、默认端口移除、路径归一化、查询参数排序、IPv4/IPv6） |
 | [`http_payload/`](http_payload/) | 二进制安全的 HTTP/1.x 请求/响应拆解、RFC 9112 Chunked（含扩展与 Trailer）解码 |
-| [`header/`](header/) | WARC 1.0/1.1 版本、全 8 类记录类型、折叠头部解析/序列化、严格 UTC 时间戳与 CDXJ 时间转换 |
-| [`codec/`](codec/) | Sans-IO 状态机 `WarcReader`（4KB 缓冲压缩 + 精确偏移追踪）、批量读写与类型化记录构建器 |
+| [`header/`](header/) | WARC 1.0/1.1 版本、全 8 类记录类型、折叠头部解析/序列化、严格 UTC 时间戳、CDXJ 时间转换与 §9 分片字段访问器 |
+| [`codec/`](codec/) | Sans-IO 状态机 `WarcReader`（4KB 缓冲压缩 + 精确偏移追踪）、批量读写与类型化记录构建器（含分片逻辑摘要保护） |
 | [`cdxj/`](cdxj/) | `CdxjEntry` / `CdxjIndex` 构建、JSON 转义行格式互转与二分查找（精确/前缀/最近时间） |
-| [`validate/`](validate/) | ISO 28500 合规诊断报告（18 项诊断码）与 `revisit` 溯源（`ByRecordId` / `ByUriAndDigest` / `Unresolved`） |
-| [`cmd/main/`](cmd/main/) | 可执行 CLI 演示，展示 6 记录 3188B WARC/1.1 样本归档的解析、验证、CDXJ 查询、Revisit 溯源与字节往返 |
-| [`scripts/verify_oracle.py`](scripts/verify_oracle.py) | Python 差分预言机，利用 Python 标准库独立核对摘要、HTTP 解块、SURT/CDXJ、归档编码与 6 类负例拦截 |
+| [`validate/`](validate/) | ISO 28500 合规诊断报告（22 项诊断码，含 `continuation` 规则）与 `revisit` 溯源（`ByRecordId` / `ByUriAndDigest` / `Unresolved`） |
+| [`pipeline/`](pipeline/) | ISO 28500 §9 分片与重组（`segment_record` / `reassemble_segments`）、多条件筛选与子集打包（`ArchiveFilter` / `extract_subset`）、`export_cdx11` 与 `export_jsonl` |
+| [`cmd/main/`](cmd/main/) | 可执行 CLI 演示，展示 6 记录 3188B WARC/1.1 样本解析、校验、CDXJ、Revisit、字节往返、§9 分片重组与子集/CDX-11/JSONL 导出 |
+| [`scripts/verify_oracle.py`](scripts/verify_oracle.py) | Python 差分预言机，核对摘要、HTTP 解块、SURT/CDXJ、归档编码、6 类负例与 v0.2.0 分片/子集/CDX-11/JSONL 管线 |
 | [`scripts/verify_all.sh`](scripts/verify_all.sh) | 本地一键全量验证脚本（`fmt`、`info`、`check --deny-warn`、4 目标测试、CLI、Oracle、打包洁净度） |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/JUDGE_QA.md`](docs/JUDGE_QA.md) | 系统架构图解与评委技术问答速查手册 |
 
 ---
 
@@ -82,10 +85,10 @@ export PATH="$HOME/.moon/bin:$PATH"
 
 - `moon check --deny-warn`：通过（0 error, 0 warning）
 - `moon fmt --check` & `moon info`：通过（代码格式 0 差异，`.mbti` 公共接口契约 0 未提交变更）
-- `moon test --target wasm`：**Total tests: 116, passed: 116, failed: 0**
-- `moon test --target wasm-gc`：**Total tests: 116, passed: 116, failed: 0**
-- `moon test --target js`：**Total tests: 116, passed: 116, failed: 0**
-- `moon test --target native`：**Total tests: 116, passed: 116, failed: 0**
-- `moon run cmd/main --target native` & `--target js`：均以退出码 0 运行并输出完全一致的 6 记录 3188B WARC/1.1 演示结果（`valid=true records=6 errors=0 warnings=0`、3 条排序 CDXJ 索引、1 条 `ByRecordId` revisit 溯源、`Round-trip byte equality: true (3188 == 3188 bytes)`）
-- `python3 scripts/verify_oracle.py`：通过（exit 0，验证 CLI 双目标一致性、SHA-1/SHA-256 Base32、Chunked HTTP、SURT/CDXJ、Revisit、折叠头、二进制负载、字节往返及 6 组负例篡改归档拦截）
-- `moon package --list`：通过（仅包含包源码与配置，通过 [`.moonignore`](.moonignore) 严格排除 `scripts/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md`、`SUBMISSION_CHECKLIST.md`）
+- `moon test --target wasm`：**Total tests: 163, passed: 163, failed: 0**
+- `moon test --target wasm-gc`：**Total tests: 163, passed: 163, failed: 0**
+- `moon test --target js`：**Total tests: 163, passed: 163, failed: 0**
+- `moon test --target native`：**Total tests: 163, passed: 163, failed: 0**
+- `moon run cmd/main --target native` & `--target js`：均以退出码 0 运行并输出完全一致的 `moon-warc v0.2.0` 演示结果（6 记录 3188B WARC/1.1、`valid=true records=6 errors=0 warnings=0`、3 条排序 CDXJ 索引、1 条 `ByRecordId` revisit 溯源、`Round-trip byte equality: true (3188 == 3188 bytes)`、§9 3 段重组 `payload_exact=true`、`org,example)` 2xx 子集 2 记录 1126B `valid=true`、CDX-11 4 行、JSONL 6 行）
+- `python3 scripts/verify_oracle.py`：通过（exit 0，验证 CLI 双目标一致性、SHA-1/SHA-256 Base32、Chunked HTTP、SURT/CDXJ、Revisit、折叠头、二进制负载、字节往返、6 组负例篡改归档以及 v0.2.0 §9 分片重组/子集抽出/CDX-11/JSONL `json.loads()` 全量校验）
+- `moon package --list`：通过（52 个包源码与配置，通过 [`.moonignore`](.moonignore) 严格排除 `scripts/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md`、`SUBMISSION_CHECKLIST.md`）
