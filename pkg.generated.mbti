@@ -13,6 +13,10 @@ pub fn build_cdxj_index(Array[@codec.WarcRecord], filename? : String) -> @cdxj.C
 
 pub fn encode_archive(Array[@codec.WarcRecord], auto_digest? : Bool) -> Bytes
 
+pub fn encode_archive_gz(Array[@codec.WarcRecord], auto_digest? : Bool, level? : Int32) -> Bytes
+
+pub fn encode_record_gz(@codec.WarcRecord, auto_digest? : Bool, level? : Int32) -> Bytes
+
 pub fn export_cdx11(Array[@codec.WarcRecord], filename? : String, include_header? : Bool) -> String
 
 pub fn export_jsonl(Array[@codec.WarcRecord], options? : @pipeline.JsonlOptions) -> String
@@ -26,6 +30,8 @@ pub fn library_version() -> String
 pub fn new_reader(limits? : @codec.ReaderLimits) -> @codec.WarcReader
 
 pub fn parse_archive(BytesView, limits? : @codec.ReaderLimits) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
+
+pub fn parse_archive_gz(BytesView, limits? : @codec.ReaderLimits) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
 
 pub fn reassemble_segments(Array[@codec.WarcRecord]) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
 

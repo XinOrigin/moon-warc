@@ -44,6 +44,36 @@ pub fn encode_archive(
 }
 
 ///|
+/// Encodes a single `WarcRecord` into one RFC 1952 `.warc.gz` member.
+pub fn encode_record_gz(
+  record : @codec.WarcRecord,
+  auto_digest~ : Bool = true,
+  level~ : Int32 = 6,
+) -> Bytes {
+  @codec.encode_record_gz(record, auto_digest~, level~)
+}
+
+///|
+/// Encodes `records` into an RFC 1952 multi-member `.warc.gz` stream (one member per record).
+pub fn encode_archive_gz(
+  records : Array[@codec.WarcRecord],
+  auto_digest~ : Bool = true,
+  level~ : Int32 = 6,
+) -> Bytes {
+  @codec.encode_all_gz(records, auto_digest~, level~)
+}
+
+///|
+/// Parses a single- or multi-member RFC 1952 `.warc.gz` byte stream into `WarcRecord`s,
+/// preserving exact compressed member `(offset, record_length)` values for CDX/CDXJ indexing.
+pub fn parse_archive_gz(
+  raw : BytesView,
+  limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
+) -> Result[Array[@codec.WarcRecord], @codec.CodecError] {
+  @codec.parse_all_gz(raw, limits~)
+}
+
+///|
 /// Builds a lexicographically sorted CDXJ archival index from WARC records.
 pub fn build_cdxj_index(
   records : Array[@codec.WarcRecord],

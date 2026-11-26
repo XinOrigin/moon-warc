@@ -7,6 +7,7 @@ pub(all) enum CodecError {
   InvalidTrailingSeparator(String)
   InvalidContentLength(String)
   LimitExceeded(String)
+  GzipError(@gzip.GzipError)
 }
 
 ///|
@@ -382,4 +383,48 @@ pub fn parse_all(
     Ok(_) => Ok(out)
     Err(e) => Err(e)
   }
+}
+
+///|
+/// Parses a single- or multi-member RFC 1952 `.warc.gz` byte stream into `WarcRecord`s.
+/// Sets each record's `offset` and `record_length` to its enclosing gzip member's compressed
+/// byte offset and compressed length so `CDXJ` / `CDX-11` indexes support HTTP range fetches.
+pub fn parse_all_gz(
+  raw : BytesView,
+  limits~ : ReaderLimits = ReaderLimits::default(),
+) -> Result[Array[WarcRecord], CodecError] {
+  let max_member_out = if limits.max_header_bytes >= 0 &&
+    limits.max_payload_bytes >= 0 {
+    let sum = limits.max_header_bytes.to_int64() +
+      limits.max_payload_bytes.to_int64() +
+      1024L
+    if sum > 2147483647L {
+      2147483647
+    } else {
+      sum.to_int()
+    }
+  } else {
+    67108864
+  }
+  let members = match
+    @gzip.decompress_members(raw, max_member_output_bytes=max_member_out) {
+    Ok(ms) => ms
+    Err(e) => return Err(GzipError(e))
+  }
+  let out : Array[WarcRecord] = []
+  for m in members {
+    let recs = match parse_all(m.uncompressed, limits~) {
+      Ok(rs) => rs
+      Err(e) => return Err(e)
+    }
+    for rec in recs {
+      out.push({
+        header: rec.header,
+        payload: rec.payload,
+        offset: m.compressed_offset,
+        record_length: m.compressed_length,
+      })
+    }
+  }
+  Ok(out)
 }

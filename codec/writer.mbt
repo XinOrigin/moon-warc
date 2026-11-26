@@ -261,3 +261,29 @@ pub fn encode_all(
   }
   out.to_bytes()
 }
+
+///|
+/// Serializes a single `WarcRecord` and wraps it in one RFC 1952 Gzip member.
+pub fn encode_record_gz(
+  record : WarcRecord,
+  auto_digest~ : Bool = true,
+  level~ : Int32 = 6,
+) -> Bytes {
+  let wire = encode_record(record, auto_digest~)
+  @gzip.compress(wire, level~)
+}
+
+///|
+/// Serializes `records` as an RFC 1952 multi-member `.warc.gz` stream where each
+/// WARC record occupies an independent concatenated Gzip member (Common Crawl layout).
+pub fn encode_all_gz(
+  records : Array[WarcRecord],
+  auto_digest~ : Bool = true,
+  level~ : Int32 = 6,
+) -> Bytes {
+  let out = @buffer.Buffer(capacity=1024)
+  for rec in records {
+    out.write_bytes(encode_record_gz(rec, auto_digest~, level~))
+  }
+  out.to_bytes()
+}

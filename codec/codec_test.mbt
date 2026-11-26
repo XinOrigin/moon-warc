@@ -384,3 +384,28 @@ test "WarcReader enforces ReaderLimits, supports Int64 offsets > 2GiB, and scan_
   assert_eq(res, Ok(2L))
   assert_eq(scanned, (wire.length() * 2).to_int64())
 }
+
+///|
+test "encode_all_gz and parse_all_gz preserve payloads and exact per-member compressed offsets" {
+  let recs = make_multi_type_records()
+  let gz_wire = @codec.encode_all_gz(recs)
+  let plain_wire = @codec.encode_all(recs)
+  assert_true(gz_wire.length() < plain_wire.length())
+  let parsed_gz = match @codec.parse_all_gz(gz_wire) {
+    Ok(rs) => rs
+    Err(_) => fail("parse_all_gz failed")
+  }
+  assert_eq(parsed_gz.length(), recs.length())
+  let mut expected_off = 0L
+  for i in 0..<parsed_gz.length() {
+    assert_eq(parsed_gz[i].payload, recs[i].payload)
+    assert_eq(parsed_gz[i].offset, expected_off)
+    assert_true(parsed_gz[i].record_length > 18L)
+    let end_off = (parsed_gz[i].offset + parsed_gz[i].record_length).to_int()
+    let slice = gz_wire[parsed_gz[i].offset.to_int():end_off]
+    assert_eq(slice[0], b'\x1f')
+    assert_eq(slice[1], b'\x8b')
+    expected_off = expected_off + parsed_gz[i].record_length
+  }
+  assert_eq(expected_off, gz_wire.length().to_int64())
+}
