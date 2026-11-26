@@ -124,7 +124,7 @@ pub fn decompress_members(
         Err(e) => return Err(e)
       }
       pos = pos + 2
-      if pos + xlen > total_len {
+      if total_len - pos < xlen {
         return Err(UnexpectedEof("truncated gzip FEXTRA header field"))
       }
       pos = pos + xlen
@@ -156,6 +156,9 @@ pub fn decompress_members(
       inflate_raw(raw, start=pos, max_output_bytes=max_member_output_bytes) {
       Ok(pair) => pair
       Err(e) => return Err(e)
+    }
+    if total_len - deflate_end < 8 {
+      return Err(UnexpectedEof("unexpected EOF reading RFC 1952 trailer"))
     }
     let expected_crc = match read_u32_le_at(raw, deflate_end) {
       Ok(v) => v

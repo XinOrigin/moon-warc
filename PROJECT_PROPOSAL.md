@@ -4,8 +4,8 @@
 - 项目名称：`moon-warc`（包名 `XinOrigin/moon_warc`）
 - 参赛者：`XinOrigin`
 - 联系方式：GitHub @XinOrigin（技术交流走仓库 Issues，个人联系信息见报名表）
-- GitHub 仓库链接：https://github.com/XinOrigin/moon-warc （在线浏览器演示：https://xinorigin.github.io/moon-warc/ ，当前版本 `v0.3.0`）
-- 项目方向与通用性说明：协议解析 / 网页归档与大模型语料数据基础设施。ISO 28500 WARC 与多成员 `.warc.gz`、CDXJ/SURT 是网页归档、爬虫快照与大模型网页语料清洗的通用标准格式；内核采用零第三方依赖的 Sans-IO 设计，仅依赖 `moonbitlang/core`，同一套代码编译覆盖 `wasm`、`wasm-gc`、`js` 和 `native` 四个目标，并已在全部四端跑通 187 项测试与 9.24 MiB 多阶段吞吐基准测试。
+- GitHub 仓库链接：https://github.com/XinOrigin/moon-warc （在线浏览器演示：https://xinorigin.github.io/moon-warc/ ，当前版本 `v0.3.1`）
+- 项目方向与通用性说明：协议解析 / 网页归档与大模型语料数据基础设施。ISO 28500 WARC 与多成员 `.warc.gz`、CDXJ/SURT 是网页归档、爬虫快照与大模型网页语料清洗的通用标准格式；内核采用零第三方依赖的 Sans-IO 设计，仅依赖 `moonbitlang/core`，同一套代码编译覆盖 `wasm`、`wasm-gc`、`js` 和 `native` 四个目标，并已在全部四端跑通 189 项测试与 69.28 MiB 多阶段吞吐基准测试（稳态 54–87 MiB/s）。
 - 原创与移植说明：原创项目，非移植项目，不涉及其他开源项目代码移植（无原移植项目名称与来源链接）；参照 ISO 28500:2009/2017、RFC 1951、RFC 1952、RFC 9112、FIPS 180-4、RFC 4648、SURT/CDXJ、RFC 8259 从零设计与实现，采用 `Apache-2.0` 协议。
 
 ## 项目简介
@@ -17,7 +17,7 @@
 3. 归档入库巡检与超大记录分片处理：在网页归档落盘或迁移前调用 `validate_archive` 核验强制头、UTC 日历日期、去分块后的真实 `WARC-Payload-Digest` 与 `revisit` 溯源，并对超长记录执行 ISO 28500 §9 分片切分与回拼验真。
 
 ## 拟实现的核心功能与迭代完成情况
-截至 `v0.3.0`（PR #14 / #15 / #16，11 个包，10,594 行 `.mbt` 源码），已全部交付并通过四端 **187 项测试**（185 单元测试 + 2 `README.mbt.md` 可执行文档测试）：
+截至 `v0.3.1`（PR #14 / #15 / #16 / #17，11 个包，35 份 `.mbt` 源码），已全部交付并通过四端 **189 项测试**（187 单元测试 + 2 `README.mbt.md` 可执行文档测试）：
 - 解析与序列化 ISO 28500 `WARC/1.0` 和 `WARC/1.1` 头部，支持 8 类标准记录类型、扩展类型、折叠头部、CRLF 序列化注入防护与严格公历 `WarcDate` / 14 位 CDXJ 日期校验。
 - Sans-IO 增量帧读取器 `WarcReader`（`Int64` 偏移、可配置 `ReaderLimits`、均摊缓冲压缩、头扫描水位与零全量数组 `scan_all` / `scan_archive`）及 `auto_digest` 构建器。
 - 纯 MoonBit RFC 1951 DEFLATE 解压（Stored / Fixed / Dynamic Huffman + 压缩炸弹 `max_output_bytes` 守卫）与 LZ77 + Fixed Huffman 压缩、IEEE 802.3 CRC-32 与 RFC 1952 多成员 `.warc.gz` 容器，精确追踪每个压缩成员的 `(compressed_offset, compressed_length)` 供 CDXJ/CDX-11 使用。

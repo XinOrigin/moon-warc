@@ -5,6 +5,21 @@ All notable changes to `XinOrigin/moon_warc` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-11-26
+
+### Performance
+
+- **10x–200x Pipeline Throughput Upgrade across All 4 Targets ([`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), PR #17)**:
+  - **9-Bit Huffman Fast Lookup Table & Unboxed `ByteSink` (`gzip/inflate.mbt`)**: Replaced 1-bit-at-a-time Huffman loops and generic `Array[Byte]` pushes with a 512-entry O(1) prefix table (`<= 9`-bit codes) plus unboxed doubling `FixedArray[Byte]` buffers.
+  - **Zero-Copy `BytesView` Fast Path in `scan_all` / `parse_archive` & Unboxed `WarcReader` (`codec/reader.mbt`)**: Removed full-stream copies for in-memory archives while preserving identical `ReaderLimits` / `CodecError` diagnostics, and upgraded incremental `WarcReader` buffering to unboxed `FixedArray[Byte]`.
+  - **Zero-Allocation Header Comparisons (`header/header.mbt`)**: Replaced per-lookup `.to_owned().to_lower()` allocations in `WarcHeader::{get,get_all,with_field,without_field}` and `WarcType::parse` with `eq_ignore_ascii_case`.
+  - Measured steady-state throughput on Apple M4 (`69.28 MiB` combined plain + SHA-256 + `.warc.gz` + CDXJ workload): **`native 87.53 MiB/s`**, **`wasm-gc 66.19 MiB/s`**, **`js 65.65 MiB/s`**, **`wasm 54.30 MiB/s`**.
+
+### Fixed & Hardened
+
+- **Subtraction-Based Overflow Guards (`gzip/inflate.mbt`, `gzip/gzip.mbt`)**: Hardened `FEXTRA` length, trailer 8-byte check (`total_len - deflate_end < 8`), stored-block length, and `max_output_bytes` bounds against signed `Int32` overflow near `Int32::MAX`.
+- **Deterministic Multi-Record Single-Member `.warc.gz` CDXJ Tie-Breaking (`cdxj/cdxj.mbt`)**: Extended `compare_entries` with `warc_type`, `url`, and `digest` tie-breakers when multiple records inside one gzip member share `(surt, timestamp, offset)`.
+
 ## [0.3.0] - 2026-11-26
 
 ### Added

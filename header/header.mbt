@@ -62,27 +62,50 @@ pub fn WarcType::to_wire_string(self : WarcType) -> String {
 }
 
 ///|
+fn ascii_lower_code(c : Int32) -> Int32 {
+  if c >= 65 && c <= 90 {
+    c + 32
+  } else {
+    c
+  }
+}
+
+///|
+fn eq_ignore_ascii_case(a : StringView, b : StringView) -> Bool {
+  let len = a.length()
+  if len != b.length() {
+    return false
+  }
+  for i in 0..<len {
+    if ascii_lower_code(a[i].to_int()) != ascii_lower_code(b[i].to_int()) {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// Parses a `WARC-Type` value (case-insensitive for standard ISO 28500 types).
 pub fn WarcType::parse(val : StringView) -> WarcType {
-  let lower = val.trim().to_owned().to_lower()
-  if lower == "warcinfo" {
+  let trimmed = val.trim()
+  if eq_ignore_ascii_case(trimmed, "warcinfo") {
     WarcInfo
-  } else if lower == "response" {
+  } else if eq_ignore_ascii_case(trimmed, "response") {
     Response
-  } else if lower == "resource" {
+  } else if eq_ignore_ascii_case(trimmed, "resource") {
     Resource
-  } else if lower == "request" {
+  } else if eq_ignore_ascii_case(trimmed, "request") {
     Request
-  } else if lower == "metadata" {
+  } else if eq_ignore_ascii_case(trimmed, "metadata") {
     Metadata
-  } else if lower == "revisit" {
+  } else if eq_ignore_ascii_case(trimmed, "revisit") {
     Revisit
-  } else if lower == "conversion" {
+  } else if eq_ignore_ascii_case(trimmed, "conversion") {
     Conversion
-  } else if lower == "continuation" {
+  } else if eq_ignore_ascii_case(trimmed, "continuation") {
     Continuation
   } else {
-    Extension(val.trim().to_owned())
+    Extension(trimmed.to_owned())
   }
 }
 
@@ -164,9 +187,8 @@ pub fn WarcHeader::parse(raw : BytesView) -> Result[WarcHeader, HeaderError] {
 ///|
 /// Looks up the first value of header `name` (case-insensitive).
 pub fn WarcHeader::get(self : WarcHeader, name : StringView) -> String? {
-  let target = name.to_owned().to_lower()
   for pair in self.fields {
-    if pair.0.to_lower() == target {
+    if eq_ignore_ascii_case(pair.0, name) {
       return Some(pair.1)
     }
   }
@@ -179,10 +201,9 @@ pub fn WarcHeader::get_all(
   self : WarcHeader,
   name : StringView,
 ) -> Array[String] {
-  let target = name.to_owned().to_lower()
   let out : Array[String] = []
   for pair in self.fields {
-    if pair.0.to_lower() == target {
+    if eq_ignore_ascii_case(pair.0, name) {
       out.push(pair.1)
     }
   }
@@ -196,11 +217,10 @@ pub fn WarcHeader::with_field(
   name : String,
   value : String,
 ) -> WarcHeader {
-  let target = name.to_lower()
   let next : Array[(String, String)] = []
   let mut replaced = false
   for pair in self.fields {
-    if !replaced && pair.0.to_lower() == target {
+    if !replaced && eq_ignore_ascii_case(pair.0, name) {
       next.push((pair.0, value))
       replaced = true
     } else {
@@ -219,10 +239,9 @@ pub fn WarcHeader::without_field(
   self : WarcHeader,
   name : StringView,
 ) -> WarcHeader {
-  let target = name.to_owned().to_lower()
   let next : Array[(String, String)] = []
   for pair in self.fields {
-    if pair.0.to_lower() != target {
+    if !eq_ignore_ascii_case(pair.0, name) {
       next.push(pair)
     }
   }

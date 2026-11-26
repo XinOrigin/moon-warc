@@ -89,4 +89,28 @@ test "gzip rejects corrupted magic, CRC32, ISIZE, truncated streams, and output 
   assert_true(
     @gzip.decompress(gz, max_output_bytes=8) is Err(@gzip.LimitExceeded(_)),
   )
+  // Truncated trailer (< 8 bytes remaining after DEFLATE end)
+  assert_true(
+    @gzip.decompress(gz[0:gz.length() - 5]) is Err(@gzip.UnexpectedEof(_)),
+  )
+}
+
+///|
+test "gzip fast-table dynamic Huffman and overlapping LZ77 distance round-trip" {
+  // Overlapping RLE (dist == 1) and short repeating period (dist < match_len)
+  let buf = @buffer.Buffer(capacity=4096)
+  for i in 0..<256 {
+    buf.write_byte((i % 251).to_byte())
+  }
+  for _ in 0..<512 {
+    buf.write_byte(b'A')
+  }
+  for i in 0..<600 {
+    buf.write_byte((i % 3 + 65).to_byte())
+  }
+  let payload = buf.to_bytes()
+  for lvl in [0, 1, 6] {
+    let gz = @gzip.compress(payload, level=lvl)
+    assert_eq(@gzip.decompress(gz), Ok(payload))
+  }
 }

@@ -425,7 +425,24 @@ fn compare_entries(a : CdxjEntry, b : CdxjEntry) -> Int32 {
   if ct != 0 {
     return ct
   }
-  a.offset.compare(b.offset)
+  let co = a.offset.compare(b.offset)
+  if co != 0 {
+    return co
+  }
+  let cw = a.warc_type.lexical_compare(b.warc_type)
+  if cw != 0 {
+    return cw
+  }
+  let cu = a.url.lexical_compare(b.url)
+  if cu != 0 {
+    return cu
+  }
+  match (a.digest, b.digest) {
+    (Some(da), Some(db)) => da.lexical_compare(db)
+    (None, Some(_)) => -1
+    (Some(_), None) => 1
+    (None, None) => 0
+  }
 }
 
 ///|
