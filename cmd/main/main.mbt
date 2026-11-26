@@ -151,4 +151,21 @@ fn main {
       )
     }
   }
+
+  println("")
+  println("=== Multi-Member .warc.gz & Compressed CDXJ ===")
+  let gz_wire = @warc.encode_archive_gz(records)
+  match @warc.parse_archive_gz(gz_wire) {
+    Err(e) => println("Gzip parse failed: \{Debug::to_repr(e).to_string()}")
+    Ok(gz_recs) => {
+      let gz_rep = @warc.validate_archive(gz_recs)
+      let gz_idx = @warc.build_cdxj_index(
+        gz_recs,
+        filename="sample-crawl-2026.warc.gz",
+      )
+      println(
+        "Multi-member .warc.gz: members=\{gz_recs.length().to_string()} compressed=\{gz_wire.length().to_string()}B raw=\{raw.length().to_string()}B valid=\{gz_rep.is_valid().to_string()} cdxj=\{gz_idx.length().to_string()}",
+      )
+    }
+  }
 }

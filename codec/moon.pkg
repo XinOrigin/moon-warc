@@ -1,7 +1,7 @@
 import {
-  "xinorigin/moon_warc/header",
-  "xinorigin/moon_warc/digest",
-  "xinorigin/moon_warc/http_payload",
-  "xinorigin/moon_warc/gzip",
+  "XinOrigin/moon_warc/header",
+  "XinOrigin/moon_warc/digest",
+  "XinOrigin/moon_warc/http_payload",
+  "XinOrigin/moon_warc/gzip",
   "moonbitlang/core/buffer",
 }

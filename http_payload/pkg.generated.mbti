@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "xinorigin/moon_warc/http_payload"
+package "XinOrigin/moon_warc/http_payload"
 
 import {
   "moonbitlang/core/debug",

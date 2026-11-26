@@ -1,16 +1,16 @@
-# 设计问答与技术说明 / Design FAQ (`v0.2.1`)
+# 设计问答与技术说明 / Design FAQ (`v0.3.0`)
 
-本文档记录 `XinOrigin/moon-warc` 在架构选型、MoonBit 语义细节、验证方法与 AI 使用披露上的 10 个常见问题。
+本文档记录 `XinOrigin/moon-warc` 在架构选型、MoonBit 语义细节、`.warc.gz` 多成员设计、验证方法与 AI 使用披露上的 10 个常见问题。
 
 ---
 
-### Q1：为什么选择实现纯 MoonBit 的 ISO 28500 WARC 解析与管线库？生态查重情况如何？
-- **生态定位与差异化**：MoonBit 生态中已有 `xiaojing012/moon-warc`（`0.1.0`），提供基础的 WARC/1.1 帧封装、校验、分段与内存索引。本项目在此方向上补齐了跨平台最易失真的协议栈与语料管线能力：`WARC/1.0` 兼容、纯 MoonBit 增量 SHA-1/SHA-256 与 Base32/Hex 验真、RFC 9112 Chunked HTTP 实体提取、SURT/CDXJ/CDX-11 词法序索引、`revisit` 溯源、§9 分片重组及 RFC 8259 JSONL 导出。
-- **真实需求**：WARC 是 Internet Archive、Common Crawl 及大模型预训练网页语料库的标准载体。主流工具链依赖 Python/Java/C++，而 `moon-warc` 零第三方依赖，一次编写可编译到 `wasm`、`wasm-gc`、`js` 与 `native` 运行。
+### Q1：为什么选择实现纯 MoonBit 的 ISO 28500 WARC 与 `.warc.gz` 解析与管线库？生态查重情况如何？
+- **生态定位与差异化**：MoonBit 生态中已有 `xiaojing012/moon-warc`（`0.1.0`），提供基础的 WARC/1.1 帧封装、校验、分段与内存索引，但源码明确注明暂未实现摘要计算（`digest` deferred）且未提供 `.warc.gz` 与导出管线。本项目在 `v0.3.0` 完整覆盖了 `WARC/1.0` 兼容、纯 MoonBit 增量 SHA-1/SHA-256 与 Base32/Hex 验真、多成员 RFC 1951/1952 `.warc.gz`、RFC 9112 Chunked HTTP 实体提取、SURT/CDXJ/CDX-11 词法序索引、`revisit` 溯源、§9 分片重组及 RFC 8259 JSONL 导出。
+- **真实需求**：WARC 与多成员 `.warc.gz` 是 Internet Archive、Common Crawl 及大模型预训练网页语料库的标准载体。主流工具链依赖 Python/Java/C++，而 `moon-warc` 零第三方依赖，一次编写可编译到 `wasm`、`wasm-gc`、`js` 与 `native` 运行（含纯前端 [`docs/index.html`](https://xinorigin.github.io/moon-warc/) 离线分析台）。
 
-### Q2：核心解析器 `WarcReader` 为什么采用 Sans-IO 设计，而不直接封装文件/网络 I/O？
-- **跨四端零条件编译**：WASM 沙箱、浏览器 `ReadableStream`、Node/Deno JS 与 Native 文件句柄的 I/O 原语完全不同。Sans-IO 只负责状态机（`SeekHeader -> ReadPayload -> ReadTrailingCrlf`）和字节切片：`feed(BytesView)` 喂入、`next_record()` 增量产出、`finish()` 做 EOF 截断审计。
-- **均摊压缩与偏移守卫**：消费游标耗尽缓冲时会直接清空重置，仅在 `cursor >= 4096 && cursor >= remaining` 时触发 `compact_if_needed()` 压缩；同时通过 `header_scan_pos` 记录头部 `\r\n\r\n` 扫描水位避免反复重扫，并用 `checked_add_i32` 拦截 `total_consumed` / `record_length` 超出 `Int32` 上限的静默回绕（迁移偏移至 `Int64` 已纳入 `v0.3.0` 计划）。
+### Q2：核心解析器 `WarcReader` 为什么采用 Sans-IO 设计，如何防范超大文件与畸形流？
+- **跨四端零条件编译**：WASM 沙箱、浏览器 `ReadableStream`、Node/Deno JS 与 Native 文件句柄的 I/O 原语完全不同。Sans-IO 只负责状态机（`SeekHeader -> ReadPayload -> ReadTrailingCrlf`）和字节切片：`feed(BytesView)` 喂入、`next_record()` 增量产出、`finish()` 做 EOF 截断审计，`scan_archive` 支持逐条流式消费而无需将整文件 `Array[WarcRecord]` 驻留内存。
+- **`Int64` 偏移、均摊压缩与 `ReaderLimits`**：消费游标耗尽缓冲时会直接清空重置，仅在 `cursor >= 4096 && cursor >= remaining` 时触发 `compact_if_needed()` 压缩；同时通过 `header_scan_pos` 记录 `\r\n\r\n` 扫描水位、`checked_add_i64` 支持超过 2 GiB 的 `Int64` 流偏移，并内置可配置 `ReaderLimits`（默认头部 64 KiB、载荷 64 MiB）防御畸形未闭合头与超大记录。
 
 ### Q3：`WARC-Block-Digest` 与 `WARC-Payload-Digest` 有何区别？遇到 HTTP Chunked 如何处理？
 - **ISO 28500 语义差异**：`WARC-Block-Digest` 对记录体完整字节流（例如包含 `HTTP/1.1 200 OK` 状态行、HTTP 头和 chunk 帧）计算摘要；而对于 `response` 记录，`WARC-Payload-Digest` 必须穿透 HTTP 头与 `Transfer-Encoding: chunked` 分块边界，仅对**解码后的真实 HTTP 实体体（entity body）**计算哈希。
@@ -42,7 +42,7 @@
 - **跨后端与 Python 对照**：通过四编译目标全量测试（173 项），并在 `native` 探针下由 [`scripts/verify_oracle.py`](../scripts/verify_oracle.py) 调用 Python 标准库（`hashlib`、`base64`、`json`）核对摘要与 JSONL，结合 Python 参考函数检查分块 HTTP、SURT/CDXJ、折叠头、6 组负例及 §9 管线。
 - **公共契约固化**：通过 `moon info` 生成并跟踪各包 `pkg.generated.mbti` 接口文件，`v0.2.1` 已将 `WarcReader`、`Sha1Hasher`、`Sha256Hasher` 与 `CdxjIndex` 内部可变字段收紧至包内私有。
 
-### Q10：`v0.2.1` 之后下一步演进路线是什么？
-- 已在 GitHub 公开规划两个后续 Issue 持续推进：
-  1. **RFC 1952 多成员 `.warc.gz` 流式压缩与解压**：支持每条 WARC 记录独立 zlib/gzip member 压缩（Common Crawl 标准存储布局），依然保持 Sans-IO 字节流接口。
-  2. **四目标吞吐与内存基准测试套件（Benchmark Harness）**：系统度量 `native`、`wasm`、`wasm-gc`、`js` 在百 MB 级流式解析、SHA-256 与 CDXJ 构建上的吞吐量与 GC 停顿表现，冲刺季度/年度榜单。
+### Q10：下一步多成员 `.warc.gz` 与性能基准实现了什么？
+- **已完成并超越原 `v0.3.0` 规划**：
+  1. **纯 MoonBit RFC 1951/1952 多成员 `.warc.gz`（Issue #11）**：零依赖实现了 IEEE 802.3 CRC-32、DEFLATE 解压（Stored / Fixed / Dynamic Huffman）与 LZ77 压缩、以及每条记录独立 Gzip member 封装与精确压缩成员 `(offset, record_length)` 映射（已与 Python `gzip compresslevel=9` + `FNAME` 双向差分验证）。
+  2. **四目标吞吐基准与离线浏览工作台（Issue #12）**：已提供 [`scripts/run_benchmarks.py`](../scripts/run_benchmarks.py) 与实测报告 [`docs/BENCHMARKS.md`](BENCHMARKS.md)，并上线基于 MoonBit JS 后端的纯离线浏览器分析台 [`docs/index.html`](https://xinorigin.github.io/moon-warc/)。

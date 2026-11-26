@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>moon-warc v0.3.0 — 浏览器离线 WARC / .warc.gz 归档分析台</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #131a2e;
+      --panel-2: #19223c;
+      --border: #27345a;
+      --text: #e6ecff;
+      --muted: #94a3c8;
+      --accent: #60a5fa;
+      --accent-2: #34d399;
+      --warn: #fbbf24;
+      --err: #f87171;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", sans-serif;
+      background: radial-gradient(circle at top right, #162142 0%, var(--bg) 55%);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container { max-width: 1260px; margin: 0 auto; padding: 24px 18px 48px; }
+    header {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start;
+      gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 20px;
+    }
+    h1 { margin: 0 0 6px; font-size: 1.55rem; letter-spacing: -0.02em; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 0.94rem; }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+      background: var(--panel-2); border: 1px solid var(--border); font-size: 0.78rem; color: var(--accent);
+    }
+    .badge.ok { color: var(--accent-2); }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    button, label.btn {
+      background: var(--accent); color: #081022; border: none; border-radius: 8px;
+      padding: 9px 14px; font-weight: 600; font-size: 0.88rem; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    }
+    button.secondary, label.btn.secondary {
+      background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    }
+    button:hover, label.btn:hover { filter: brightness(1.08); }
+    input[type="file"] { display: none; }
+    .dropzone {
+      border: 1.5px dashed var(--border); border-radius: 12px; padding: 14px 18px;
+      background: rgba(25, 34, 60, 0.45); display: flex; flex-wrap: wrap;
+      justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px;
+      transition: border-color .15s, background .15s;
+    }
+    .dropzone.dragover { border-color: var(--accent); background: rgba(96, 165, 250, 0.12); }
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+      gap: 12px; margin-bottom: 18px;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+    }
+    .card .k { font-size: 0.76rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .card .v { font-size: 1.15rem; font-weight: 700; margin-top: 4px; word-break: break-word; }
+    .card .v.ok { color: var(--accent-2); }
+    .card .v.err { color: var(--err); }
+    .query-bar {
+      display: grid; grid-template-columns: 1.2fr 1.6fr 1fr auto; gap: 10px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px; margin-bottom: 18px; align-items: end;
+    }
+    @media (max-width: 860px) { .query-bar { grid-template-columns: 1fr; } }
+    .field label { display: block; font-size: 0.76rem; color: var(--muted); margin-bottom: 4px; }
+    .field input {
+      width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 7px; padding: 8px 10px; font-family: var(--mono); font-size: 0.84rem;
+    }
+    .grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 14px; margin-bottom: 18px; }
+    @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    }
+    .panel-head {
+      padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .panel-head h2 { margin: 0; font-size: 0.96rem; }
+    .table-wrap { max-height: 410px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; background: var(--panel-2); color: var(--muted); font-weight: 600; }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover, tr.clickable.active { background: rgba(96, 165, 250, 0.14); }
+    .mono { font-family: var(--mono); }
+    .pill {
+      display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.74rem;
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    pre {
+      margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 0.79rem;
+      white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto;
+      background: #090e1c; color: #dbe7ff;
+    }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--border); }
+    .tab-btn {
+      background: transparent; color: var(--muted); border: 1px solid transparent; padding: 6px 10px; font-size: 0.82rem;
+    }
+    .tab-btn.active { background: var(--panel); color: var(--text); border-color: var(--border); }
+    .hidden { display: none; }
+    .closest-box {
+      background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.35);
+      border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; font-size: 0.84rem;
+    }
+    footer { margin-top: 24px; text-align: center; color: var(--muted); font-size: 0.82rem; }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>moon-warc <span class="mono" style="color: var(--accent)">v0.3.0</span></h1>
+        <p class="subtitle">纯 MoonBit 编写的离线 ISO 28500 WARC 1.0/1.1 &amp; 多成员 RFC 1952 <code>.warc.gz</code> 巡检工作台</p>
+        <div class="badges">
+          <span class="badge ok">100% 本地浏览器执行 · 零服务器上传</span>
+          <span class="badge">纯 MoonBit SHA-1/SHA-256 + RFC 9112 Chunked 解码</span>
+          <span class="badge">纯 MoonBit DEFLATE + 多成员 Gzip 偏移索引</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-sample">加载内置 .warc.gz 样例</button>
+        <label class="btn secondary" for="file-input">选择本地 .warc / .warc.gz</label>
+        <input id="file-input" type="file" accept=".warc,.gz,.warc.gz" />
+        <button id="btn-download" class="secondary">下载样例 .warc.gz</button>
+      </div>
+    </header>
+
+    <div id="dropzone" class="dropzone">
+      <div id="drop-status" class="mono" style="font-size: 0.84rem;">拖拽任意 <code>.warc</code> 或 <code>.warc.gz</code> 文件到此处，完全在浏览器内存中解析与验真。</div>
+      <div class="mono" style="font-size: 0.78rem; color: var(--muted);">Engine: <span id="engine-ver">loading...</span></div>
+    </div>
+
+    <div class="stats">
+      <div class="card"><div class="k">容器格式 / Format</div><div class="v" id="st-format">-</div></div>
+      <div class="card"><div class="k">归档体积 / Input Size</div><div class="v mono" id="st-size">-</div></div>
+      <div class="card"><div class="k">记录总数 / Records</div><div class="v mono" id="st-count">-</div></div>
+      <div class="card"><div class="k">ISO 28500 合规 / Validation</div><div class="v" id="st-valid">-</div></div>
+      <div class="card"><div class="k">CDXJ 条目 / Revisit</div><div class="v mono" id="st-cdxj">-</div></div>
+    </div>
+
+    <div class="query-bar">
+      <div class="field">
+        <label>SURT / URL 前缀过滤 (`lookup_prefix`)</label>
+        <input id="inp-prefix" value="org,example)" placeholder="org,example) 或 https://..." />
+      </div>
+      <div class="field">
+        <label>时间最近邻检索 URL (`lookup_closest`)</label>
+        <input id="inp-closest-url" value="https://example.org/index.html" />
+      </div>
+      <div class="field">
+        <label>目标时间戳 (`YYYYMMDDhhmmss`)</label>
+        <input id="inp-closest-ts" value="20261125121000" />
+      </div>
+      <button id="btn-query">执行检索</button>
+    </div>
+
+    <div id="closest-box" class="closest-box hidden"></div>
+
+    <div class="grid">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>WARC 记录流 &amp; 压缩成员字节定位</h2>
+          <span class="mono" style="font-size: 0.76rem; color: var(--muted)">点击任意行查看详情</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Type</th><th>Offset..Length</th><th>Status / MIME</th><th>Target URI</th></tr>
+            </thead>
+            <tbody id="rec-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 id="detail-title">记录详情 / Record Inspector</h2>
+          <span id="detail-badge" class="pill mono">-</span>
+        </div>
+        <div style="padding: 10px 14px; font-size: 0.8rem; color: var(--muted); border-bottom: 1px solid var(--border);">
+          <div>Block Digest: <span id="dt-bdig" class="mono" style="color: var(--text)">-</span></div>
+          <div>Payload Digest: <span id="dt-pdig" class="mono" style="color: var(--text)">-</span></div>
+        </div>
+        <pre id="dt-headers" style="max-height: 150px; border-bottom: 1px solid var(--border);"></pre>
+        <pre id="dt-body" style="max-height: 220px;"></pre>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="cdxj">CDXJ 索引</button>
+        <button class="tab-btn" data-tab="cdx11">11 列 CDX</button>
+        <button class="tab-btn" data-tab="jsonl">LLM JSONL 语料</button>
+        <button class="tab-btn" data-tab="diag">ISO 28500 诊断与 Revisit</button>
+        <button id="btn-copy-tab" class="secondary" style="margin-left: auto; padding: 5px 10px; font-size: 0.78rem;">复制当前视图</button>
+      </div>
+      <pre id="tab-cdxj"></pre>
+      <pre id="tab-cdx11" class="hidden"></pre>
+      <pre id="tab-jsonl" class="hidden"></pre>
+      <pre id="tab-diag" class="hidden"></pre>
+    </div>
+
+    <footer>
+      <a href="https://github.com/XinOrigin/moon-warc" target="_blank" rel="noopener">GitHub: XinOrigin/moon-warc</a>
+      · Apache-2.0 Open Source · Compiled with MoonBit JS Backend (`--release`)
+    </footer>
+  </div>
+
+  <script src="./moon_warc_web.js"></script>
+  <script>
+    (function () {
+      const api = window.MoonWarcWeb;
+      let currentHex = "";
+      let currentFilename = "sample-crawl-2026.warc.gz";
+      let lastResult = null;
+      let activeTab = "cdxj";
+
+      function bytesToHex(u8) {
+        const hex = new Array(u8.length);
+        for (let i = 0; i < u8.length; i++) {
+          hex[i] = u8[i].toString(16).padStart(2, "0");
+        }
+        return hex.join("");
+      }
+
+      function hexToBytes(hexStr) {
+        const clean = hexStr.trim();
+        const out = new Uint8Array(clean.length / 2);
+        for (let i = 0; i < out.length; i++) {
+          out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+      }
+
+      function selectRecord(idx) {
+        if (!lastResult || !lastResult.records[idx]) return;
+        const r = lastResult.records[idx];
+        document.querySelectorAll("#rec-tbody tr").forEach((tr) => {
+          tr.classList.toggle("active", Number(tr.dataset.idx) === idx);
+        });
+        document.getElementById("detail-title").textContent = `Record #${r.index} (${r.warc_type})`;
+        document.getElementById("detail-badge").textContent = `${r.version} · offset=${r.offset} len=${r.length}`;
+        document.getElementById("dt-bdig").textContent = r.block_digest || "-";
+        document.getElementById("dt-pdig").textContent = r.payload_digest || "-";
+        document.getElementById("dt-headers").textContent = r.headers_text || "";
+        document.getElementById("dt-body").textContent = r.body_preview || "(empty payload)";
+      }
+
+      function runInspect() {
+        if (!api || !currentHex) return;
+        const prefix = document.getElementById("inp-prefix").value || "";
+        const cu = document.getElementById("inp-closest-url").value || "";
+        const ct = document.getElementById("inp-closest-ts").value || "";
+        const rawJson = api.inspectArchiveHex(currentHex, currentFilename, prefix, cu, ct);
+        const res = JSON.parse(rawJson);
+        if (!res.ok) {
+          document.getElementById("drop-status").textContent = "解析错误: " + res.error;
+          document.getElementById("st-valid").textContent = "Parse Error";
+          document.getElementById("st-valid").className = "v err";
+          return;
+        }
+        lastResult = res;
+        document.getElementById("engine-ver").textContent = "moon-warc v" + res.version;
+        document.getElementById("drop-status").textContent = `当前文件: ${currentFilename} (${res.input_bytes} bytes) — 本地解析与验真完成`;
+        document.getElementById("st-format").textContent = res.format;
+        document.getElementById("st-size").textContent = `${res.input_bytes} B`;
+        document.getElementById("st-count").textContent = `${res.record_count} 条`;
+
+        const validEl = document.getElementById("st-valid");
+        validEl.textContent = `${res.valid ? "PASS" : "FAIL"} (${res.error_count} err / ${res.warning_count} warn)`;
+        validEl.className = "v " + (res.valid ? "ok" : "err");
+        document.getElementById("st-cdxj").textContent = `${res.cdxj_total} / ${res.revisits.length}`;
+
+        const closestBox = document.getElementById("closest-box");
+        if (res.closest_hit) {
+          closestBox.classList.remove("hidden");
+          closestBox.innerHTML =
+            `<strong><code>lookup_closest</code> 最近邻命中：</strong> ` +
+            `<span class="mono">${res.closest_hit.surt} @ ${res.closest_hit.timestamp}</span> · ` +
+            `type=<code>${res.closest_hit.warc_type}</code> · ` +
+            `range=<code>${res.closest_hit.offset}..${Number(res.closest_hit.offset) + Number(res.closest_hit.length)}</code>`;
+        } else {
+          closestBox.classList.add("hidden");
+        }
+
+        const tbody = document.getElementById("rec-tbody");
+        tbody.innerHTML = "";
+        res.records.forEach((r, idx) => {
+          const tr = document.createElement("tr");
+          tr.className = "clickable";
+          tr.dataset.idx = String(idx);
+          const statusMime = (r.http_status ? `${r.http_status} ` : "") + (r.mime || "-");
+          tr.innerHTML =
+            `<td class="mono">${r.index}</td>` +
+            `<td><span class="pill mono">${r.warc_type}</span></td>` +
+            `<td class="mono">${r.offset} (+${r.length})</td>` +
+            `<td class="mono">${statusMime}</td>` +
+            `<td class="mono" style="word-break:break-all">${r.target_uri}</td>`;
+          tr.addEventListener("click", () => selectRecord(idx));
+          tbody.appendChild(tr);
+        });
+        if (res.records.length > 0) selectRecord(0);
+
+        const filteredLines = res.cdxj_entries.map((e) => e.line).join("\n");
+        document.getElementById("tab-cdxj").textContent =
+          `# Matched by prefix (${res.cdxj_entries.length}/${res.cdxj_total} entries)\n` +
+          (filteredLines || "(no entries match current SURT prefix)");
+        document.getElementById("tab-cdx11").textContent = res.cdx11 || "";
+        document.getElementById("tab-jsonl").textContent = res.jsonl || "";
+
+        const diagLines = [];
+        diagLines.push("=== Revisit Resolution (" + res.revisits.length + ") ===");
+        res.revisits.forEach((rv) => {
+          diagLines.push(`revisit #${rv.revisit_index} (${rv.revisit_id}) -> ${rv.match_kind} -> ${rv.target_record_id || "<unresolved>"}`);
+        });
+        diagLines.push("");
+        diagLines.push("=== Conformance Diagnostics (" + res.diagnostics.length + ") ===");
+        if (res.diagnostics.length === 0) {
+          diagLines.push("No errors or warnings. Archive passes all ISO 28500 & digest checks.");
+        } else {
+          res.diagnostics.forEach((d) => {
+            diagLines.push(`[${d.severity}] #${d.record_index} @${d.offset} ${d.code}: ${d.message}`);
+          });
+        }
+        document.getElementById("tab-diag").textContent = diagLines.join("\n");
+      }
+
+      function loadFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          currentHex = bytesToHex(new Uint8Array(reader.result));
+          currentFilename = file.name || "uploaded.warc";
+          runInspect();
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      document.getElementById("btn-sample").addEventListener("click", () => {
+        currentHex = api.sampleWarcGzHex();
+        currentFilename = "sample-crawl-2026.warc.gz";
+        runInspect();
+      });
+
+      document.getElementById("btn-query").addEventListener("click", runInspect);
+      document.getElementById("file-input").addEventListener("change", (e) => loadFile(e.target.files[0]));
+
+      document.getElementById("btn-download").addEventListener("click", () => {
+        const bytes = hexToBytes(api.sampleWarcGzHex());
+        const blob = new Blob([bytes], { type: "application/gzip" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "sample-crawl-2026.warc.gz";
+        a.click();
+      });
+
+      const dz = document.getElementById("dropzone");
+      dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("dragover"); });
+      dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+      dz.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dz.classList.remove("dragover");
+        if (e.dataTransfer.files.length > 0) loadFile(e.dataTransfer.files[0]);
+      });
+
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          activeTab = btn.dataset.tab;
+          document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+          ["cdxj", "cdx11", "jsonl", "diag"].forEach((id) => {
+            document.getElementById("tab-" + id).classList.toggle("hidden", id !== activeTab);
+          });
+        });
+      });
+
+      document.getElementById("btn-copy-tab").addEventListener("click", () => {
+        const txt = document.getElementById("tab-" + activeTab).textContent || "";
+        navigator.clipboard?.writeText(txt);
+      });
+
+      // Boot immediately with built-in multi-member .warc.gz sample
+      currentHex = api.sampleWarcGzHex();
+      runInspect();
+    })();
+  </script>
+</body>
+</html>

@@ -1,13 +1,15 @@
-name = "xinorigin/moon_warc"
+name = "XinOrigin/moon_warc"
 
-version = "0.2.1"
+version = "0.3.0"
 
-readme = "README.md"
+supported_targets = [ "wasm", "wasm-gc", "js", "native" ]
+
+readme = "README.mbt.md"
 
 repository = "https://github.com/XinOrigin/moon-warc"
 
 license = "Apache-2.0"
 
-keywords = [ "warc", "iso28500", "cdxj", "surt", "web-archive" ]
+keywords = [ "warc", "warc-gz", "iso28500", "cdxj", "surt", "web-archive" ]
 
-description = "Pure-MoonBit ISO 28500 WARC 1.0/1.1 streaming codec, SHA-1/SHA-256 verifier, SURT/CDXJ/CDX-11 indexer, ISO 28500 §9 segmentation, subset filter, JSONL exporter, and conformance validator."
+description = "Pure-MoonBit ISO 28500 WARC 1.0/1.1 & multi-member .warc.gz streaming codec, SHA-1/SHA-256 verifier, SURT/CDXJ/CDX-11 indexer, §9 segmentation, JSONL exporter, and conformance validator."

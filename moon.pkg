@@ -1,8 +1,8 @@
 import {
-  "xinorigin/moon_warc/codec",
-  "xinorigin/moon_warc/cdxj",
-  "xinorigin/moon_warc/validate",
-  "xinorigin/moon_warc/digest",
-  "xinorigin/moon_warc/header",
-  "xinorigin/moon_warc/pipeline",
+  "XinOrigin/moon_warc/codec",
+  "XinOrigin/moon_warc/cdxj",
+  "XinOrigin/moon_warc/validate",
+  "XinOrigin/moon_warc/digest",
+  "XinOrigin/moon_warc/header",
+  "XinOrigin/moon_warc/pipeline",
 }

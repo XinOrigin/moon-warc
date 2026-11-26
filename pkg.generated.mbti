@@ -1,11 +1,11 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "xinorigin/moon_warc"
+package "XinOrigin/moon_warc"
 
 import {
-  "xinorigin/moon_warc/cdxj",
-  "xinorigin/moon_warc/codec",
-  "xinorigin/moon_warc/pipeline",
-  "xinorigin/moon_warc/validate",
+  "XinOrigin/moon_warc/cdxj",
+  "XinOrigin/moon_warc/codec",
+  "XinOrigin/moon_warc/pipeline",
+  "XinOrigin/moon_warc/validate",
 }
 
 // Values
