@@ -92,3 +92,11 @@ test "parse_uri preserves non-default port and query without path" {
     Err(_) => fail("unexpected URI parse error")
   }
 }
+
+///|
+test "to_surt percent-encodes whitespace and control characters for CDXJ round-trip safety" {
+  assert_eq(
+    @surt.to_surt("https://example.org/hello world?q=a b&a=1"),
+    Ok("org,example)/hello%20world?a=1&q=a%20b"),
+  )
+}

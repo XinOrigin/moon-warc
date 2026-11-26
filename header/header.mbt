@@ -127,7 +127,7 @@ pub fn WarcHeader::parse(raw : BytesView) -> Result[WarcHeader, HeaderError] {
   for i in 1..<raw_lines.length() {
     let line = raw_lines[i]
     if line.is_empty() {
-      continue
+      return Err(InvalidHeaderLine("empty line inside WARC header block"))
     }
     let first_ch = line[0].to_int()
     if first_ch == 32 || first_ch == 9 {
@@ -230,8 +230,8 @@ pub fn WarcHeader::without_field(
 }
 
 ///|
-/// Parses a strict non-negative base-10 integer string with overflow guard.
-fn parse_nonneg_int(raw : String) -> Int32? {
+/// Parses a strict non-negative base-10 `Int32` integer string with overflow guard.
+fn parse_nonneg_int32(raw : String) -> Int32? {
   let s = raw.trim().to_owned()
   if s.is_empty() {
     return None
@@ -242,10 +242,33 @@ fn parse_nonneg_int(raw : String) -> Int32? {
     if c < 48 || c > 57 {
       return None
     }
-    if acc > 200000000 {
+    let digit = c - 48
+    if acc > 214748364 || (acc == 214748364 && digit > 7) {
       return None
     }
-    acc = acc * 10 + (c - 48)
+    acc = acc * 10 + digit
+  }
+  Some(acc)
+}
+
+///|
+/// Parses a strict non-negative base-10 `Int64` integer string with overflow guard.
+fn parse_nonneg_int64(raw : String) -> Int64? {
+  let s = raw.trim().to_owned()
+  if s.is_empty() {
+    return None
+  }
+  let mut acc = 0L
+  for i in 0..<s.length() {
+    let c = s[i].to_int()
+    if c < 48 || c > 57 {
+      return None
+    }
+    let digit = (c - 48).to_int64()
+    if acc > 922337203685477580L || (acc == 922337203685477580L && digit > 7L) {
+      return None
+    }
+    acc = acc * 10L + digit
   }
   Some(acc)
 }
@@ -272,14 +295,14 @@ pub fn WarcHeader::warc_date(self : WarcHeader) -> String? {
 }
 
 ///|
-/// Parses `Content-Length` strictly as a non-negative integer.
+/// Parses `Content-Length` strictly as a non-negative `Int64` integer.
 pub fn WarcHeader::parse_content_length(
   self : WarcHeader,
-) -> Result[Int32, HeaderError] {
+) -> Result[Int64, HeaderError] {
   match self.get("Content-Length") {
     None => Err(MissingRequiredHeader("Content-Length"))
     Some(raw) =>
-      match parse_nonneg_int(raw) {
+      match parse_nonneg_int64(raw) {
         Some(n) => Ok(n)
         None => Err(InvalidContentLength(raw))
       }
@@ -287,8 +310,8 @@ pub fn WarcHeader::parse_content_length(
 }
 
 ///|
-/// Returns the parsed `Content-Length` if present and valid.
-pub fn WarcHeader::content_length(self : WarcHeader) -> Int32? {
+/// Returns the parsed `Content-Length` (`Int64`) if present and valid.
+pub fn WarcHeader::content_length(self : WarcHeader) -> Int64? {
   match self.parse_content_length() {
     Ok(n) => Some(n)
     Err(_) => None
@@ -350,10 +373,10 @@ pub fn WarcHeader::identified_payload_type(self : WarcHeader) -> String? {
 }
 
 ///|
-/// Returns parsed `WARC-Segment-Number` if present and valid (non-negative integer).
+/// Returns parsed `WARC-Segment-Number` if present and valid (non-negative `Int32`).
 pub fn WarcHeader::segment_number(self : WarcHeader) -> Int32? {
   match self.get("WARC-Segment-Number") {
-    Some(raw) => parse_nonneg_int(raw)
+    Some(raw) => parse_nonneg_int32(raw)
     None => None
   }
 }
@@ -365,24 +388,53 @@ pub fn WarcHeader::segment_origin_id(self : WarcHeader) -> String? {
 }
 
 ///|
-/// Returns parsed `WARC-Segment-Total-Length` if present and valid (non-negative integer).
-pub fn WarcHeader::segment_total_length(self : WarcHeader) -> Int32? {
+/// Returns parsed `WARC-Segment-Total-Length` if present and valid (non-negative `Int64`).
+pub fn WarcHeader::segment_total_length(self : WarcHeader) -> Int64? {
   match self.get("WARC-Segment-Total-Length") {
-    Some(raw) => parse_nonneg_int(raw)
+    Some(raw) => parse_nonneg_int64(raw)
     None => None
   }
 }
 
 ///|
+fn sanitize_header_name(name : String) -> String {
+  let sb = StringBuilder()
+  for ch in name {
+    if ch != '\r' && ch != '\n' && ch != ':' {
+      sb.write_char(ch)
+    }
+  }
+  sb.to_string()
+}
+
+///|
+fn sanitize_header_value(value : String) -> String {
+  let sb = StringBuilder()
+  for ch in value {
+    if ch == '\r' || ch == '\n' {
+      sb.write_char(' ')
+    } else {
+      sb.write_char(ch)
+    }
+  }
+  sb.to_string()
+}
+
+///|
 /// Serializes the WARC header block including its terminating blank line (`\r\n\r\n`).
+/// Sanitizes `\r` / `\n` inside field names and values so callers cannot inject raw frame breaks.
 pub fn WarcHeader::serialize(self : WarcHeader) -> Bytes {
   let sb = StringBuilder()
   sb.write_string(self.version.to_wire_string())
   sb.write_string("\r\n")
   for pair in self.fields {
-    sb.write_string(pair.0)
+    let k = sanitize_header_name(pair.0)
+    if k.is_empty() {
+      continue
+    }
+    sb.write_string(k)
     sb.write_string(": ")
-    sb.write_string(pair.1)
+    sb.write_string(sanitize_header_value(pair.1))
     sb.write_string("\r\n")
   }
   sb.write_string("\r\n")

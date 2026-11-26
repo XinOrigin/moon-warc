@@ -23,15 +23,17 @@ pub fn filter_records(Array[@codec.WarcRecord], @pipeline.ArchiveFilter, include
 
 pub fn library_version() -> String
 
-pub fn new_reader() -> @codec.WarcReader
+pub fn new_reader(limits? : @codec.ReaderLimits) -> @codec.WarcReader
 
-pub fn parse_archive(BytesView) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
+pub fn parse_archive(BytesView, limits? : @codec.ReaderLimits) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
 
 pub fn reassemble_segments(Array[@codec.WarcRecord]) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
 
 pub fn resolve_revisits(Array[@codec.WarcRecord]) -> Array[@validate.ResolvedRevisit]
 
 pub fn sample_archive_bytes() -> Bytes
+
+pub fn scan_archive(BytesView, limits? : @codec.ReaderLimits, (@codec.WarcRecord) -> Unit) -> Result[Int64, @codec.CodecError]
 
 pub fn segment_record(@codec.WarcRecord, max_segment_bytes~ : Int32) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
 

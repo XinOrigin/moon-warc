@@ -101,7 +101,7 @@ test "segment_record splits chunked HTTP response and preserves logical WARC-Pay
   }
   assert_eq(
     segs[segs.length() - 1].header.segment_total_length(),
-    Some(orig.payload.length()),
+    Some(orig.payload.length().to_int64()),
   )
 }
 
@@ -126,7 +126,10 @@ test "segment_record encodes to wire bytes and reassembles cleanly via WarcReade
   assert_eq(reassembled.length(), 1)
   assert_eq(reassembled[0].payload, orig.payload)
   assert_eq(reassembled[0].header.segment_number(), None)
-  assert_eq(reassembled[0].header.content_length(), Some(orig.payload.length()))
+  assert_eq(
+    reassembled[0].header.content_length(),
+    Some(orig.payload.length().to_int64()),
+  )
   assert_eq(
     reassembled[0].header.block_digest(),
     Some(@digest.format_warc_digest_sha256(orig.payload)),
@@ -288,8 +291,8 @@ test "reassemble_segments rejects segment total length mismatch" {
       "WARC-Segment-Total-Length", "99999",
     ),
     payload: segs[last_idx].payload,
-    offset: 0,
-    record_length: 0,
+    offset: 0L,
+    record_length: 0L,
   }
   let bad_segs = segs[0:last_idx].to_owned()
   bad_segs.push(bad_last)
@@ -312,8 +315,8 @@ test "reassemble_segments detects tampered payload digest across segments" {
       @digest.format_warc_digest_sha256(b"wrong-content"),
     ),
     payload: segs[0].payload,
-    offset: 0,
-    record_length: 0,
+    offset: 0L,
+    record_length: 0L,
   }
   let modified = [tampered_seg0]
   for i in 1..<segs.length() {
@@ -447,7 +450,7 @@ test "extract_subset produces valid wire WARC with recalculated offsets and warc
   }
   assert_eq(sub.length(), 2)
   assert_eq(sub[0].header.warc_type(), Some(@header.WarcInfo))
-  assert_eq(sub[0].offset, 0)
+  assert_eq(sub[0].offset, 0L)
   assert_eq(sub[1].header.warc_type(), Some(@header.Response))
   assert_eq(sub[1].offset, sub[0].record_length)
   assert_eq(sub[1].header.record_id(), Some("<urn:uuid:pipe-0003>"))
@@ -625,7 +628,7 @@ test "segment_record splits exact multiple without trailing empty continuation" 
   assert_eq(segs.length(), 2)
   assert_eq(segs[0].payload.length(), 5)
   assert_eq(segs[1].payload.length(), 5)
-  assert_eq(segs[1].header.segment_total_length(), Some(10))
+  assert_eq(segs[1].header.segment_total_length(), Some(10L))
 }
 
 ///|
@@ -789,4 +792,43 @@ test "export_cdx11 populates redirect Location column and sanitizes spaces" {
   assert_eq(cols[4], "302")
   assert_eq(cols[6], "https://example.org/new%20location")
   assert_eq(cols[10], "my%20archive.warc")
+}
+
+///|
+test "ArchiveFilter rejects invalid 14-digit calendar dates and reassemble_segments rejects non-final Total-Length" {
+  let recs = make_pipeline_fixture()
+  assert_eq(
+    @pipeline.filter_records(
+      recs,
+      @pipeline.ArchiveFilter::new(date_from="20269999999999"),
+    ).length(),
+    0,
+  )
+  assert_eq(
+    @pipeline.filter_records(
+      recs,
+      @pipeline.ArchiveFilter::new(date_to="20250229120000"),
+    ).length(),
+    0,
+  )
+  let segs = match @pipeline.segment_record(recs[2], max_segment_bytes=30) {
+    Ok(s) => s
+    Err(_) => fail("segment failed")
+  }
+  assert_true(segs.length() >= 3)
+  let total_s = recs[2].payload.length().to_string()
+  let bad_mid : @codec.WarcRecord = {
+    header: segs[1].header.with_field("WARC-Segment-Total-Length", total_s),
+    payload: segs[1].payload,
+    offset: 0L,
+    record_length: 0L,
+  }
+  let modified = [segs[0], bad_mid]
+  for i in 2..<segs.length() {
+    modified.push(segs[i])
+  }
+  assert_true(
+    @pipeline.reassemble_segments(modified)
+    is Err(@pipeline.TotalLengthMismatch(_)),
+  )
 }

@@ -27,7 +27,9 @@ pub fn encode_record(WarcRecord, auto_digest? : Bool) -> Bytes
 
 pub fn make_record(@header.WarcVersion, Array[(String, String)], Bytes) -> WarcRecord
 
-pub fn parse_all(BytesView) -> Result[Array[WarcRecord], CodecError]
+pub fn parse_all(BytesView, limits? : ReaderLimits) -> Result[Array[WarcRecord], CodecError]
+
+pub fn scan_all(BytesView, limits? : ReaderLimits, (WarcRecord) -> Unit) -> Result[Int64, CodecError]
 
 // Errors
 
@@ -38,24 +40,34 @@ pub(all) enum CodecError {
   UnexpectedEof(String)
   InvalidTrailingSeparator(String)
   InvalidContentLength(String)
+  LimitExceeded(String)
 }
+
+#derive(Eq, @debug.Debug)
+pub(all) struct ReaderLimits {
+  max_header_bytes : Int32
+  max_payload_bytes : Int32
+}
+pub fn ReaderLimits::default() -> Self
 
 type ReaderState
 
 pub struct WarcReader {
   // private fields
 }
+pub fn WarcReader::bytes_consumed(Self) -> Int64
 pub fn WarcReader::feed(Self, BytesView) -> Unit
 pub fn WarcReader::finish(Self) -> Result[Unit, CodecError]
-pub fn WarcReader::new() -> Self
+pub fn WarcReader::new(limits? : ReaderLimits) -> Self
 pub fn WarcReader::next_record(Self) -> Result[WarcRecord?, CodecError]
+pub fn WarcReader::set_bytes_consumed(Self, Int64) -> Unit
 
 #derive(Eq, @debug.Debug)
 pub(all) struct WarcRecord {
   header : @header.WarcHeader
   payload : Bytes
-  offset : Int32
-  record_length : Int32
+  offset : Int64
+  record_length : Int64
 }
 
 // Type aliases

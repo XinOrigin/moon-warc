@@ -78,6 +78,35 @@ fn pad4(v : Int32) -> String {
 }
 
 ///|
+/// Validates calendar components for a canonical UTC timestamp.
+fn build_validated_warc_date(
+  year : Int32,
+  month : Int32,
+  day : Int32,
+  hour : Int32,
+  minute : Int32,
+  second : Int32,
+  fraction : String?,
+  raw : String,
+) -> Result[WarcDate, HeaderError] {
+  if year < 1 || month < 1 || month > 12 {
+    return Err(InvalidDate(raw))
+  }
+  if day < 1 || day > days_in_month(year, month) {
+    return Err(InvalidDate(raw))
+  }
+  if hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59 {
+    return Err(InvalidDate(raw))
+  }
+  Ok({ year, month, day, hour, minute, second, fraction, raw, })
+}
+
+///|
 /// Parses a strict ISO 28500 UTC timestamp (`YYYY-MM-DDThh:mm:ssZ` or WARC 1.1 fractional seconds).
 pub fn WarcDate::parse(raw_view : StringView) -> Result[WarcDate, HeaderError] {
   let raw = raw_view.trim().to_owned()
@@ -98,28 +127,23 @@ pub fn WarcDate::parse(raw_view : StringView) -> Result[WarcDate, HeaderError] {
     None => return Err(InvalidDate(raw))
   }
   let month = match parse_fixed_digits(raw, 5, 2) {
-    Some(m) => if m >= 1 && m <= 12 { m } else { return Err(InvalidDate(raw)) }
+    Some(m) => m
     None => return Err(InvalidDate(raw))
   }
   let day = match parse_fixed_digits(raw, 8, 2) {
-    Some(d) =>
-      if d >= 1 && d <= days_in_month(year, month) {
-        d
-      } else {
-        return Err(InvalidDate(raw))
-      }
+    Some(d) => d
     None => return Err(InvalidDate(raw))
   }
   let hour = match parse_fixed_digits(raw, 11, 2) {
-    Some(h) => if h >= 0 && h <= 23 { h } else { return Err(InvalidDate(raw)) }
+    Some(h) => h
     None => return Err(InvalidDate(raw))
   }
   let minute = match parse_fixed_digits(raw, 14, 2) {
-    Some(m) => if m >= 0 && m <= 59 { m } else { return Err(InvalidDate(raw)) }
+    Some(m) => m
     None => return Err(InvalidDate(raw))
   }
   let second = match parse_fixed_digits(raw, 17, 2) {
-    Some(s) => if s >= 0 && s <= 59 { s } else { return Err(InvalidDate(raw)) }
+    Some(s) => s
     None => return Err(InvalidDate(raw))
   }
   let fraction = if len == 20 {
@@ -136,7 +160,45 @@ pub fn WarcDate::parse(raw_view : StringView) -> Result[WarcDate, HeaderError] {
     }
     Some(raw[20:len - 1].to_owned())
   }
-  Ok({ year, month, day, hour, minute, second, fraction, raw, })
+  build_validated_warc_date(
+    year, month, day, hour, minute, second, fraction, raw,
+  )
+}
+
+///|
+/// Parses a strict 14-digit CDXJ UTC timestamp (`YYYYMMDDhhmmss`) with full calendar checks.
+pub fn WarcDate::parse_cdxj_timestamp(
+  raw_view : StringView,
+) -> Result[WarcDate, HeaderError] {
+  let raw = raw_view.trim().to_owned()
+  if raw.length() != 14 {
+    return Err(InvalidDate(raw))
+  }
+  let year = match parse_fixed_digits(raw, 0, 4) {
+    Some(y) => y
+    None => return Err(InvalidDate(raw))
+  }
+  let month = match parse_fixed_digits(raw, 4, 2) {
+    Some(m) => m
+    None => return Err(InvalidDate(raw))
+  }
+  let day = match parse_fixed_digits(raw, 6, 2) {
+    Some(d) => d
+    None => return Err(InvalidDate(raw))
+  }
+  let hour = match parse_fixed_digits(raw, 8, 2) {
+    Some(h) => h
+    None => return Err(InvalidDate(raw))
+  }
+  let minute = match parse_fixed_digits(raw, 10, 2) {
+    Some(m) => m
+    None => return Err(InvalidDate(raw))
+  }
+  let second = match parse_fixed_digits(raw, 12, 2) {
+    Some(s) => s
+    None => return Err(InvalidDate(raw))
+  }
+  build_validated_warc_date(year, month, day, hour, minute, second, None, raw)
 }
 
 ///|

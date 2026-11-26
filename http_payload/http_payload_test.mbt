@@ -156,4 +156,9 @@ test "http_payload handles obs-fold headers and multiple Transfer-Encoding heade
     Ok(resp) => assert_false(resp.is_chunked())
     Err(_) => fail("unexpected error on non-chunked TE")
   }
+  let blank_in_hdr = b"HTTP/1.1 200 OK\n\r\nHost: example.org\r\n\r\nbody"
+  assert_true(
+    @http_payload.parse_http_response(blank_in_hdr)
+    is Err(@http_payload.InvalidHeaderLine(_)),
+  )
 }

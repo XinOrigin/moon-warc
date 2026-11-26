@@ -54,7 +54,7 @@ test "validate_archive detects tampered block digest and tampered HTTP payload d
   let tampered : @codec.WarcRecord = {
     header: parsed[0].header,
     payload: b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nTampered",
-    offset: 0,
+    offset: 0L,
     record_length: parsed[0].record_length,
   }
   let report = @validate.validate_archive([tampered])

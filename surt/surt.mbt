@@ -276,13 +276,50 @@ fn sort_query(query : String) -> String {
 }
 
 ///|
+fn hex_upper_nibble(n : Int32) -> Char {
+  let v = n & 0x0f
+  if v < 10 {
+    (48 + v).to_char().unwrap()
+  } else {
+    (65 + v - 10).to_char().unwrap()
+  }
+}
+
+///|
+fn percent_encode_surt_component(s : String) -> String {
+  let mut needs_escape = false
+  for ch in s {
+    let code = ch.to_int()
+    if code <= 32 || code == 127 {
+      needs_escape = true
+      break
+    }
+  }
+  if !needs_escape {
+    return s
+  }
+  let sb = StringBuilder()
+  for ch in s {
+    let code = ch.to_int()
+    if code <= 32 || code == 127 {
+      sb.write_char('%')
+      sb.write_char(hex_upper_nibble((code >> 4) & 0x0f))
+      sb.write_char(hex_upper_nibble(code & 0x0f))
+    } else {
+      sb.write_char(ch)
+    }
+  }
+  sb.to_string()
+}
+
+///|
 /// Converts a URI string to canonical SURT form (`com,example,docs)/a/c?a=2&z=1`).
 pub fn to_surt(raw : StringView) -> Result[String, SurtError] {
   match parse_uri(raw) {
     Err(e) => Err(e)
     Ok(uri) => {
       let sb = StringBuilder()
-      sb.write_string(surt_host(uri.host))
+      sb.write_string(percent_encode_surt_component(surt_host(uri.host)))
       match uri.port {
         Some(p) =>
           if !is_default_port(uri.scheme, p) {
@@ -292,13 +329,13 @@ pub fn to_surt(raw : StringView) -> Result[String, SurtError] {
         None => ()
       }
       sb.write_char(')')
-      sb.write_string(normalize_path(uri.path))
+      sb.write_string(percent_encode_surt_component(normalize_path(uri.path)))
       match uri.query {
         Some(q) => {
           let sq = sort_query(q)
           if !sq.is_empty() {
             sb.write_char('?')
-            sb.write_string(sq)
+            sb.write_string(percent_encode_surt_component(sq))
           }
         }
         None => ()

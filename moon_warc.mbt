@@ -6,16 +6,30 @@ pub fn library_version() -> String {
 
 ///|
 /// Creates a fresh incremental Sans-IO `WarcReader` for streaming WARC 1.0/1.1 archives.
-pub fn new_reader() -> @codec.WarcReader {
-  @codec.WarcReader::new()
+pub fn new_reader(
+  limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
+) -> @codec.WarcReader {
+  @codec.WarcReader::new(limits~)
 }
 
 ///|
 /// Parses a complete ISO 28500 WARC 1.0/1.1 byte stream into records.
 pub fn parse_archive(
   raw : BytesView,
+  limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
 ) -> Result[Array[@codec.WarcRecord], @codec.CodecError] {
-  @codec.parse_all(raw)
+  @codec.parse_all(raw, limits~)
+}
+
+///|
+/// Streams a WARC 1.0/1.1 byte stream record-by-record via `on_record` without buffering
+/// all decoded records in an `Array`, returning the count of records processed.
+pub fn scan_archive(
+  raw : BytesView,
+  limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
+  on_record : (@codec.WarcRecord) -> Unit,
+) -> Result[Int64, @codec.CodecError] {
+  @codec.scan_all(raw, limits~, on_record)
 }
 
 ///|

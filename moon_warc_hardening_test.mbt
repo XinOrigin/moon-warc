@@ -116,22 +116,23 @@ test "hardening python oracle golden 3-record WARC/1.1 archive byte-for-byte mat
     Err(_) => fail("golden parse_archive failed")
   }
   assert_eq(recs.length(), 3)
-  assert_eq(recs[0].offset, 0)
-  assert_eq(recs[0].record_length, 335)
-  assert_eq(recs[1].offset, 335)
-  assert_eq(recs[1].record_length, 584)
-  assert_eq(recs[2].offset, 919)
-  assert_eq(recs[2].record_length, 573)
+  assert_eq(recs[0].offset, 0L)
+  assert_eq(recs[0].record_length, 335L)
+  assert_eq(recs[1].offset, 335L)
+  assert_eq(recs[1].record_length, 584L)
+  assert_eq(recs[2].offset, 919L)
+  assert_eq(recs[2].record_length, 573L)
   let report = @moon_warc.validate_archive(recs)
   assert_true(report.is_valid())
   assert_eq(report.error_count, 0)
   assert_eq(report.warning_count, 0)
   let idx = @moon_warc.build_cdxj_index(recs, filename="golden.warc")
-  assert_eq(idx.entries.length(), 2)
-  assert_eq(idx.entries[0].surt, "org,example,docs)/a/c?a=1&z=9")
-  assert_eq(idx.entries[0].timestamp, "20261125080100")
-  assert_eq(idx.entries[1].surt, "org,example,docs)/a/c?a=1&z=9")
-  assert_eq(idx.entries[1].timestamp, "20261125080200")
+  let idx_entries = idx.entries()
+  assert_eq(idx_entries.length(), 2)
+  assert_eq(idx_entries[0].surt, "org,example,docs)/a/c?a=1&z=9")
+  assert_eq(idx_entries[0].timestamp, "20261125080100")
+  assert_eq(idx_entries[1].surt, "org,example,docs)/a/c?a=1&z=9")
+  assert_eq(idx_entries[1].timestamp, "20261125080200")
   assert_eq(@moon_warc.encode_archive(recs, auto_digest=false), golden)
 }
 
@@ -166,8 +167,9 @@ test "hardening CDXJ SURT lexical vs shortlex ordering on query parameters" {
     Err(_) => fail("parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(parsed)
-  assert_eq(idx.entries[0].surt, "com,example)/search?a=1&b=1&b=2")
-  assert_eq(idx.entries[1].surt, "com,example)/search?a=3&alpha=2&z=1")
+  let entries = idx.entries()
+  assert_eq(entries[0].surt, "com,example)/search?a=1&b=1&b=2")
+  assert_eq(entries[1].surt, "com,example)/search?a=3&alpha=2&z=1")
 }
 
 ///|
@@ -191,7 +193,7 @@ test "hardening CDXJ SURT lexical sorting across domain labels and ports" {
     Err(_) => fail("parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(parsed)
-  let surts = idx.entries.map(e => e.surt)
+  let surts = idx.entries().map(e => e.surt)
   // ASCII: ')' (41) < ',' (44) < ':' (58), and "a" < "alpha"
   assert_eq(surts, [
     "org,example)/a", "org,example)/alpha", "org,example,b,a)/a", "org,example,z)/a",
@@ -216,9 +218,10 @@ test "hardening CDXJ SURT dot-segment clamping and trailing slash semantics" {
     Err(_) => fail("parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(parsed)
-  assert_eq(idx.entries[0].surt, "org,example)/")
-  assert_eq(idx.entries[1].surt, "org,example)/a")
-  assert_eq(idx.entries[2].surt, "org,example)/a/b/")
+  let entries = idx.entries()
+  assert_eq(entries[0].surt, "org,example)/")
+  assert_eq(entries[1].surt, "org,example)/a")
+  assert_eq(entries[2].surt, "org,example)/a/b/")
 }
 
 ///|
@@ -242,7 +245,7 @@ test "hardening CDXJ SURT IPv4, IPv6, localhost, trailing dot, and default ports
     Err(_) => fail("parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(parsed)
-  let surts = idx.entries.map(e => e.surt)
+  let surts = idx.entries().map(e => e.surt)
   assert_true(surts.contains("192.0.2.10)/status"))
   assert_true(surts.contains("[::1]:8080)/metrics?flag&k=v"))
   assert_true(surts.contains("localhost)/ws"))
@@ -269,10 +272,11 @@ test "hardening CDXJ tie-breaks identical SURT and timestamp by ascending offset
     Err(_) => fail("parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(parsed)
-  assert_eq(idx.entries.length(), 2)
-  assert_eq(idx.entries[0].offset, 0)
-  assert_eq(idx.entries[1].offset, parsed[1].offset)
-  assert_true(idx.entries[0].offset < idx.entries[1].offset)
+  let entries = idx.entries()
+  assert_eq(entries.length(), 2)
+  assert_eq(entries[0].offset, 0L)
+  assert_eq(entries[1].offset, parsed[1].offset)
+  assert_true(entries[0].offset < entries[1].offset)
 }
 
 ///|
@@ -320,10 +324,11 @@ test "hardening CDXJ indexes conversion records and skips warcinfo request metad
     Err(_) => fail("parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(parsed, filename="conv.warc")
-  assert_eq(idx.entries.length(), 1)
-  assert_eq(idx.entries[0].warc_type, "conversion")
-  assert_eq(idx.entries[0].mime, Some("text/plain"))
-  assert_eq(idx.entries[0].filename, "conv.warc")
+  let entries = idx.entries()
+  assert_eq(entries.length(), 1)
+  assert_eq(entries[0].warc_type, "conversion")
+  assert_eq(entries[0].mime, Some("text/plain"))
+  assert_eq(entries[0].filename, "conv.warc")
 }
 
 ///|
@@ -333,7 +338,7 @@ test "hardening CDXJ empty archive produces empty index and empty format_all" {
     Err(_) => fail("empty parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(recs)
-  assert_eq(idx.entries.length(), 0)
+  assert_eq(idx.length(), 0)
   assert_eq(idx.format_all(), "")
   assert_eq(idx.lookup_exact("https://example.org/"), [])
   assert_eq(idx.lookup_prefix("org,example"), [])
@@ -424,8 +429,8 @@ test "hardening CDXJ format_line omits optional None fields and parses numeric J
     mime: None,
     status: None,
     digest: None,
-    length: 120,
-    offset: 0,
+    length: 120L,
+    offset: 0L,
     filename: "min.warc",
     warc_type: "resource",
   }
@@ -438,8 +443,8 @@ test "hardening CDXJ format_line omits optional None fields and parses numeric J
   match @cdxj.parse_line(numeric_json) {
     Ok(e) => {
       assert_eq(e.status, Some(200))
-      assert_eq(e.length, 120)
-      assert_eq(e.offset, 64)
+      assert_eq(e.length, 120L)
+      assert_eq(e.offset, 64L)
       assert_eq(e.filename, "")
       assert_eq(e.warc_type, "response")
     }
@@ -547,8 +552,8 @@ test "hardening revisit resolves against resource record by URI and payload dige
       @digest.format_warc_digest_sha256(res_body),
     ),
     payload: res_base.payload,
-    offset: 0,
-    record_length: 0,
+    offset: 0L,
+    record_length: 0L,
   }
   let rev = @codec.build_revisit(
     record_id="<urn:uuid:img-rev>",
@@ -599,7 +604,7 @@ test "hardening WARC 1.0 and 1.1 fractional timestamps preserve CDXJ 14-digit tr
   }
   assert_true(@moon_warc.validate_archive(parsed).is_valid())
   let idx = @moon_warc.build_cdxj_index(parsed)
-  assert_eq(idx.entries[0].timestamp, "20261125235959")
+  assert_eq(idx.get(0).map(e => e.timestamp), Some("20261125235959"))
 }
 
 ///|
@@ -610,14 +615,15 @@ test "hardening CDXJ format_all and parse_line round-trip every entry in sample 
     Err(_) => fail("parse failed")
   }
   let idx = @moon_warc.build_cdxj_index(recs, filename="sample.warc")
+  let entries = idx.entries()
   let text = idx.format_all()
   let lines : Array[String] = []
   for part in text.split("\n") {
     lines.push(part.to_owned())
   }
-  assert_eq(lines.length(), idx.entries.length())
+  assert_eq(lines.length(), entries.length())
   for i in 0..<lines.length() {
-    assert_eq(@cdxj.parse_line(lines[i]), Ok(idx.entries[i]))
+    assert_eq(@cdxj.parse_line(lines[i]), Ok(entries[i]))
   }
 }
 
@@ -632,8 +638,8 @@ test "hardening header case-insensitivity and multi-value concurrent-to preserva
   assert_eq(recs[0].header.warc_type(), Some(@header.Response))
   assert_eq(recs[0].header.concurrent_to(), ["<urn:uuid:c1>", "<urn:uuid:c2>"])
   let idx = @moon_warc.build_cdxj_index(recs)
-  assert_eq(idx.entries.length(), 1)
-  assert_eq(idx.entries[0].status, Some(204))
+  assert_eq(idx.length(), 1)
+  assert_eq(idx.get(0).bind(e => e.status), Some(204))
 }
 
 ///|
@@ -674,7 +680,7 @@ test "hardening encode_archive auto_digest=true updates stale Content-Length and
     Ok(v) => v
     Err(_) => fail("parse failed")
   }
-  assert_eq(parsed[0].header.content_length(), Some(11))
+  assert_eq(parsed[0].header.content_length(), Some(11L))
   assert_eq(
     parsed[0].header.block_digest(),
     Some(@digest.format_warc_digest_sha256(b"fresh-bytes")),

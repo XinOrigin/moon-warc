@@ -13,7 +13,7 @@ pub(all) struct Diagnostic {
   severity : Severity
   code : String
   record_index : Int32
-  offset : Int32
+  offset : Int64
   message : String
 }
 
@@ -45,7 +45,7 @@ fn push_diag(
   severity : Severity,
   code : String,
   record_index : Int32,
-  offset : Int32,
+  offset : Int64,
   message : String,
 ) -> Unit {
   diags.push({ severity, code, record_index, offset, message, })
@@ -58,6 +58,7 @@ fn push_diag(
 pub fn validate_archive(records : Array[@codec.WarcRecord]) -> ValidationReport {
   let diags : Array[Diagnostic] = []
   let id_counts : Map[String, Int32] = Map([])
+  let record_by_id : Map[String, @codec.WarcRecord] = Map([])
   for rec in records {
     match rec.header.record_id() {
       Some(id) => {
@@ -66,6 +67,9 @@ pub fn validate_archive(records : Array[@codec.WarcRecord]) -> ValidationReport 
           None => 0
         }
         id_counts[id] = prev + 1
+        if !record_by_id.contains(id) {
+          record_by_id[id] = rec
+        }
       }
       None => ()
     }
@@ -157,7 +161,7 @@ pub fn validate_archive(records : Array[@codec.WarcRecord]) -> ValidationReport 
           "missing or invalid Content-Length header",
         )
       Ok(cl) =>
-        if cl != rec.payload.length() {
+        if cl != rec.payload.length().to_int64() {
           push_diag(
             diags,
             Error,
@@ -252,15 +256,33 @@ pub fn validate_archive(records : Array[@codec.WarcRecord]) -> ValidationReport 
                 off,
                 "WARC-Segment-Origin-ID must be enclosed in <...>: \{oid}",
               )
-            } else if !id_counts.contains(oid) {
-              push_diag(
-                diags,
-                Warning,
-                "UNRESOLVED_SEGMENT_ORIGIN_ID",
-                idx,
-                off,
-                "WARC-Segment-Origin-ID target not found in archive: \{oid}",
-              )
+            } else {
+              match record_by_id.get(oid) {
+                None =>
+                  push_diag(
+                    diags,
+                    Warning,
+                    "UNRESOLVED_SEGMENT_ORIGIN_ID",
+                    idx,
+                    off,
+                    "WARC-Segment-Origin-ID target not found in archive: \{oid}",
+                  )
+                Some(origin_rec) => {
+                  let origin_wt = origin_rec.header.warc_type()
+                  let origin_sn = origin_rec.header.segment_number()
+                  if origin_wt == Some(@header.Continuation) ||
+                    origin_sn != Some(1) {
+                    push_diag(
+                      diags,
+                      Error,
+                      "INVALID_SEGMENT_ORIGIN_ID",
+                      idx,
+                      off,
+                      "WARC-Segment-Origin-ID target must be an origin record with WARC-Segment-Number: 1: \{oid}",
+                    )
+                  }
+                }
+              }
             }
         }
         match hdr.segment_number() {
@@ -286,7 +308,18 @@ pub fn validate_archive(records : Array[@codec.WarcRecord]) -> ValidationReport 
             )
         }
       }
-      _ => ()
+      _ =>
+        if hdr.get("WARC-Segment-Number") is Some(_) &&
+          hdr.segment_number() != Some(1) {
+          push_diag(
+            diags,
+            Error,
+            "INVALID_SEGMENT_NUMBER",
+            idx,
+            off,
+            "non-continuation segmented origin record must have WARC-Segment-Number: 1",
+          )
+        }
     }
     match hdr.block_digest() {
       Some(bd) =>

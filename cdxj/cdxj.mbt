@@ -17,17 +17,46 @@ pub(all) struct CdxjEntry {
   mime : String?
   status : Int32?
   digest : String?
-  length : Int32
-  offset : Int32
+  length : Int64
+  offset : Int64
   filename : String
   warc_type : String
 }
 
 ///|
 /// Sorted CDXJ index supporting fast binary-search queries.
+/// Internal entries slice is private to uphold lexicographic sorting invariant.
 #derive(Eq, Debug)
 pub struct CdxjIndex {
-  entries : Array[CdxjEntry]
+  priv entries : Array[CdxjEntry]
+}
+
+///|
+/// Returns the number of entries in the sorted index.
+pub fn CdxjIndex::length(self : CdxjIndex) -> Int32 {
+  self.entries.length()
+}
+
+///|
+/// Returns `true` when the index contains no entries.
+pub fn CdxjIndex::is_empty(self : CdxjIndex) -> Bool {
+  self.entries.is_empty()
+}
+
+///|
+/// Returns the `i`-th sorted entry if `index` is within bounds.
+pub fn CdxjIndex::get(self : CdxjIndex, index : Int32) -> CdxjEntry? {
+  if index >= 0 && index < self.entries.length() {
+    Some(self.entries[index])
+  } else {
+    None
+  }
+}
+
+///|
+/// Returns a defensive copy of all sorted entries in the index.
+pub fn CdxjIndex::entries(self : CdxjIndex) -> Array[CdxjEntry] {
+  self.entries.copy()
 }
 
 ///|
@@ -44,22 +73,22 @@ fn strip_mime_params(ct : String) -> String? {
 }
 
 ///|
-fn parse_int_string(s : String) -> Int32? {
+fn parse_int64_string(s : String) -> Int64? {
   let clean = s.trim().to_owned()
   if clean.is_empty() {
     return None
   }
-  let mut acc = 0
+  let mut acc = 0L
   for i in 0..<clean.length() {
     let c = clean[i].to_int()
     if c < 48 || c > 57 {
       return None
     }
-    let digit = c - 48
-    if acc > 214748364 || (acc == 214748364 && digit > 7) {
+    let digit = (c - 48).to_int64()
+    if acc > 922337203685477580L || (acc == 922337203685477580L && digit > 7L) {
       return None
     }
-    acc = acc * 10 + digit
+    acc = acc * 10L + digit
   }
   Some(acc)
 }
@@ -269,11 +298,57 @@ fn json_get_string(obj : Map[String, Json], key : String) -> String? {
 }
 
 ///|
-fn json_get_int(obj : Map[String, Json], key : String) -> Int32? {
-  match obj.get(key) {
-    Some(Json::String(s)) => parse_int_string(s)
-    Some(Json::Number(n, ..)) => Some(n.to_int())
+fn parse_int64_json_val(v : Json) -> Int64? {
+  match v {
+    Json::String(s) => parse_int64_string(s)
+    Json::Number(n, ..) =>
+      if n.is_nan() ||
+        n.is_inf() ||
+        n < 0.0 ||
+        n.floor() != n ||
+        n > 9007199254740991.0 {
+        None
+      } else {
+        Some(n.to_int64())
+      }
     _ => None
+  }
+}
+
+///|
+fn json_get_int64_field(
+  obj : Map[String, Json],
+  key : String,
+) -> Result[Int64, CdxjError] {
+  match obj.get(key) {
+    None => Err(MissingJsonField(key))
+    Some(v) =>
+      match parse_int64_json_val(v) {
+        Some(n) => Ok(n)
+        None =>
+          Err(InvalidJsonBlock("invalid non-negative integer field '\{key}'"))
+      }
+  }
+}
+
+///|
+fn json_get_optional_status(
+  obj : Map[String, Json],
+) -> Result[Int32?, CdxjError] {
+  match obj.get("status") {
+    None => Ok(None)
+    Some(Json::Null) => Ok(None)
+    Some(v) =>
+      match parse_int64_json_val(v) {
+        Some(n) =>
+          if n <= 2147483647L {
+            Ok(Some(n.to_int()))
+          } else {
+            Err(InvalidJsonBlock("overflowing integer field 'status'"))
+          }
+        None =>
+          Err(InvalidJsonBlock("invalid non-negative integer field 'status'"))
+      }
   }
 }
 
@@ -306,13 +381,17 @@ pub fn parse_line(line_view : StringView) -> Result[CdxjEntry, CdxjError] {
     Some(u) => u
     None => return Err(MissingJsonField("url"))
   }
-  let length = match json_get_int(obj, "length") {
-    Some(n) => n
-    None => return Err(MissingJsonField("length"))
+  let length = match json_get_int64_field(obj, "length") {
+    Ok(n) => n
+    Err(e) => return Err(e)
   }
-  let offset = match json_get_int(obj, "offset") {
-    Some(n) => n
-    None => return Err(MissingJsonField("offset"))
+  let offset = match json_get_int64_field(obj, "offset") {
+    Ok(n) => n
+    Err(e) => return Err(e)
+  }
+  let status = match json_get_optional_status(obj) {
+    Ok(st) => st
+    Err(e) => return Err(e)
   }
   let filename = match json_get_string(obj, "filename") {
     Some(f) => f
@@ -327,7 +406,7 @@ pub fn parse_line(line_view : StringView) -> Result[CdxjEntry, CdxjError] {
     timestamp,
     url,
     mime: json_get_string(obj, "mime"),
-    status: json_get_int(obj, "status"),
+    status,
     digest: json_get_string(obj, "digest"),
     length,
     offset,

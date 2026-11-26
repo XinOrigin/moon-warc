@@ -74,7 +74,10 @@ test "negative Content-Length negative values rejected by codec and validator" {
 
 ///|
 test "negative Content-Length overflow, non-numeric, empty, and missing rejected" {
-  for bad_cl in ["2000000010", "999999999999999999", "12abc", "", "12.5"] {
+  for
+    bad_cl in [
+      "9223372036854775808", "99999999999999999999", "12abc", "", "12.5",
+    ] {
     let hdr = @header.WarcHeader::new(@header.Warc1_1, [
       ("WARC-Type", "warcinfo"),
       ("WARC-Record-ID", "<urn:uuid:cl-err>"),
@@ -186,7 +189,7 @@ test "negative tampered SHA-256 WARC-Block-Digest detected" {
   let tampered : @codec.WarcRecord = {
     header: parsed[0].header,
     payload: b"tampered!-block-bytes",
-    offset: 0,
+    offset: 0L,
     record_length: parsed[0].record_length,
   }
   let report = @validate.validate_archive([tampered])
@@ -667,4 +670,36 @@ test "negative continuation records catch missing origin, invalid segment number
   assert_true(neg_has_code(report, "MISSING_SEGMENT_ORIGIN_ID"))
   assert_true(neg_has_code(report, "INVALID_SEGMENT_NUMBER"))
   assert_true(neg_has_code(report, "UNRESOLVED_SEGMENT_ORIGIN_ID"))
+}
+
+///|
+test "negative validate_archive rejects bad non-continuation segment numbers and continuation-targeting origin ID" {
+  let bad_non_cont = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "resource"),
+      ("WARC-Record-ID", "<urn:uuid:orig-bad-sn>"),
+      ("WARC-Date", "2026-11-26T00:00:00Z"),
+      ("WARC-Target-URI", "https://example.org/orig"),
+      ("WARC-Segment-Number", "2"),
+      ("Content-Length", "3"),
+    ],
+    b"abc",
+  )
+  let cont_to_bad = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "continuation"),
+      ("WARC-Record-ID", "<urn:uuid:cont-bad-orig>"),
+      ("WARC-Date", "2026-11-26T00:00:00Z"),
+      ("WARC-Segment-Origin-ID", "<urn:uuid:orig-bad-sn>"),
+      ("WARC-Segment-Number", "2"),
+      ("Content-Length", "3"),
+    ],
+    b"def",
+  )
+  let report = @validate.validate_archive([bad_non_cont, cont_to_bad])
+  assert_false(report.is_valid())
+  assert_true(neg_has_code(report, "INVALID_SEGMENT_NUMBER"))
+  assert_true(neg_has_code(report, "INVALID_SEGMENT_ORIGIN_ID"))
 }

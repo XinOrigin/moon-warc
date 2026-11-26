@@ -6,6 +6,21 @@ pub(all) enum CodecError {
   UnexpectedEof(String)
   InvalidTrailingSeparator(String)
   InvalidContentLength(String)
+  LimitExceeded(String)
+}
+
+///|
+/// Resource bounds enforced by `WarcReader` to guard against untrusted oversized frames.
+#derive(Eq, Debug)
+pub(all) struct ReaderLimits {
+  max_header_bytes : Int32
+  max_payload_bytes : Int32
+}
+
+///|
+/// Default reader limits (`64 KiB` max header block, `64 MiB` max payload).
+pub fn ReaderLimits::default() -> ReaderLimits {
+  { max_header_bytes: 65536, max_payload_bytes: 67108864, }
 }
 
 ///|
@@ -14,20 +29,20 @@ pub(all) enum CodecError {
 pub(all) struct WarcRecord {
   header : @header.WarcHeader
   payload : Bytes
-  offset : Int32
-  record_length : Int32
+  offset : Int64
+  record_length : Int64
 }
 
 ///|
 enum ReaderState {
   SeekHeader
-  ReadPayload(@header.WarcHeader, Int32, Int32, Int32)
-  ReadTrailingCrlf(@header.WarcHeader, Bytes, Int32, Int32)
+  ReadPayload(@header.WarcHeader, Int32, Int64, Int64)
+  ReadTrailingCrlf(@header.WarcHeader, Bytes, Int64, Int64)
 }
 
 ///|
-fn checked_add_i32(a : Int32, b : Int32) -> Int32? {
-  if b < 0 || a < 0 || a > 2147483647 - b {
+fn checked_add_i64(a : Int64, b : Int64) -> Int64? {
+  if b < 0L || a < 0L || a > 9223372036854775807L - b {
     None
   } else {
     Some(a + b)
@@ -40,19 +55,40 @@ pub struct WarcReader {
   priv mut buf : Array[Byte]
   priv mut cursor : Int32
   priv mut header_scan_pos : Int32
-  priv mut total_consumed : Int32
+  priv mut total_consumed : Int64
+  priv limits : ReaderLimits
   priv mut state : ReaderState
 }
 
 ///|
 /// Creates a fresh streaming `WarcReader`.
-pub fn WarcReader::new() -> WarcReader {
+pub fn WarcReader::new(
+  limits~ : ReaderLimits = ReaderLimits::default(),
+) -> WarcReader {
   {
     buf: [],
     cursor: 0,
     header_scan_pos: 0,
-    total_consumed: 0,
+    total_consumed: 0L,
+    limits,
     state: SeekHeader,
+  }
+}
+
+///|
+/// Returns the cumulative number of uncompressed WARC stream bytes consumed so far.
+pub fn WarcReader::bytes_consumed(self : WarcReader) -> Int64 {
+  self.total_consumed
+}
+
+///|
+/// Sets the starting stream byte offset before parsing resumes (for windowed/multi-part streams).
+pub fn WarcReader::set_bytes_consumed(
+  self : WarcReader,
+  offset : Int64,
+) -> Unit {
+  if offset >= 0L {
+    self.total_consumed = offset
   }
 }
 
@@ -139,26 +175,61 @@ pub fn WarcReader::next_record(
           return Ok(None)
         }
         match self.find_crlfcrlf() {
-          None => return Ok(None)
+          None => {
+            if self.limits.max_header_bytes >= 0 &&
+              self.available() > self.limits.max_header_bytes {
+              return Err(
+                LimitExceeded(
+                  "unterminated WARC header exceeds max_header_bytes (\{self.limits.max_header_bytes.to_string()})",
+                ),
+              )
+            }
+            return Ok(None)
+          }
           Some(end_idx) => {
+            let hdr_body_len = end_idx - self.cursor
+            if self.limits.max_header_bytes >= 0 &&
+              hdr_body_len > self.limits.max_header_bytes {
+              return Err(
+                LimitExceeded(
+                  "WARC header exceeds max_header_bytes (\{self.limits.max_header_bytes.to_string()})",
+                ),
+              )
+            }
             let hdr_bytes = self.slice_bytes(self.cursor, end_idx)
-            let hdr_len = end_idx - self.cursor + 4
+            let hdr_len = (hdr_body_len + 4).to_int64()
             let rec_offset = self.total_consumed
             let hdr = match @header.WarcHeader::parse(hdr_bytes) {
               Ok(h) => h
               Err(e) => return Err(HeaderError(e))
             }
-            let content_len = match hdr.parse_content_length() {
+            let content_len_i64 = match hdr.parse_content_length() {
               Ok(n) => n
               Err(e) => return Err(HeaderError(e))
             }
+            if self.limits.max_payload_bytes >= 0 &&
+              content_len_i64 > self.limits.max_payload_bytes.to_int64() {
+              return Err(
+                LimitExceeded(
+                  "WARC Content-Length \{content_len_i64.to_string()} exceeds max_payload_bytes (\{self.limits.max_payload_bytes.to_string()})",
+                ),
+              )
+            }
+            if content_len_i64 > 2147483647L {
+              return Err(
+                LimitExceeded(
+                  "WARC payload exceeds single-record buffer capacity (2 GiB)",
+                ),
+              )
+            }
+            let content_len = content_len_i64.to_int()
             let next_consumed = match
-              checked_add_i32(self.total_consumed, hdr_len) {
+              checked_add_i64(self.total_consumed, hdr_len) {
               Some(v) => v
               None =>
                 return Err(
                   InvalidContentLength(
-                    "WARC stream byte offset exceeds Int32 range",
+                    "WARC stream byte offset exceeds Int64 range",
                   ),
                 )
             }
@@ -173,20 +244,21 @@ pub fn WarcReader::next_record(
         if self.available() < content_len {
           return Ok(None)
         }
-        let body_plus_hdr = match checked_add_i32(hdr_len, content_len) {
+        let content_len_i64 = content_len.to_int64()
+        let body_plus_hdr = match checked_add_i64(hdr_len, content_len_i64) {
           Some(v) => v
           None =>
             return Err(
-              InvalidContentLength("WARC record length exceeds Int32 range"),
+              InvalidContentLength("WARC record length exceeds Int64 range"),
             )
         }
         let next_consumed = match
-          checked_add_i32(self.total_consumed, content_len) {
+          checked_add_i64(self.total_consumed, content_len_i64) {
           Some(v) => v
           None =>
             return Err(
               InvalidContentLength(
-                "WARC stream byte offset exceeds Int32 range",
+                "WARC stream byte offset exceeds Int64 range",
               ),
             )
         }
@@ -210,19 +282,19 @@ pub fn WarcReader::next_record(
             ),
           )
         }
-        let total_rec_len = match checked_add_i32(body_plus_hdr_len, 4) {
+        let total_rec_len = match checked_add_i64(body_plus_hdr_len, 4L) {
           Some(v) => v
           None =>
             return Err(
-              InvalidContentLength("WARC record length exceeds Int32 range"),
+              InvalidContentLength("WARC record length exceeds Int64 range"),
             )
         }
-        let next_consumed = match checked_add_i32(self.total_consumed, 4) {
+        let next_consumed = match checked_add_i64(self.total_consumed, 4L) {
           Some(v) => v
           None =>
             return Err(
               InvalidContentLength(
-                "WARC stream byte offset exceeds Int32 range",
+                "WARC stream byte offset exceeds Int64 range",
               ),
             )
         }
@@ -273,19 +345,40 @@ pub fn WarcReader::finish(self : WarcReader) -> Result[Unit, CodecError] {
 }
 
 ///|
-/// Parses a complete WARC archive byte sequence into an array of `WarcRecord`s.
-pub fn parse_all(raw : BytesView) -> Result[Array[WarcRecord], CodecError] {
-  let reader = WarcReader::new()
+/// Streams through a complete WARC byte sequence invoking `on_record` per decoded record
+/// without allocating a combined `Array[WarcRecord]`, returning the number of scanned records.
+pub fn scan_all(
+  raw : BytesView,
+  limits~ : ReaderLimits = ReaderLimits::default(),
+  on_record : (WarcRecord) -> Unit,
+) -> Result[Int64, CodecError] {
+  let reader = WarcReader::new(limits~)
   reader.feed(raw)
-  let out : Array[WarcRecord] = []
+  let mut count = 0L
   while true {
     match reader.next_record() {
       Err(e) => return Err(e)
       Ok(None) => break
-      Ok(Some(rec)) => out.push(rec)
+      Ok(Some(rec)) => {
+        on_record(rec)
+        count = count + 1L
+      }
     }
   }
   match reader.finish() {
+    Ok(_) => Ok(count)
+    Err(e) => Err(e)
+  }
+}
+
+///|
+/// Parses a complete WARC archive byte sequence into an array of `WarcRecord`s.
+pub fn parse_all(
+  raw : BytesView,
+  limits~ : ReaderLimits = ReaderLimits::default(),
+) -> Result[Array[WarcRecord], CodecError] {
+  let out : Array[WarcRecord] = []
+  match scan_all(raw, limits~, fn(rec) { out.push(rec) }) {
     Ok(_) => Ok(out)
     Err(e) => Err(e)
   }
