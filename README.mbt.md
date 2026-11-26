@@ -1,7 +1,7 @@
 # moon-warc
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](CHANGELOG.md)
+[![Version: v0.3.1](https://img.shields.io/badge/Version-v0.3.1-green.svg)](CHANGELOG.md)
 [![Targets: wasm | wasm-gc | js | native](https://img.shields.io/badge/Targets-wasm%20%7C%20wasm--gc%20%7C%20js%20%7C%20native-purple.svg)](#多目标验证矩阵与基准测试--verification--benchmarks)
 [![Live Offline Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-orange.svg)](https://xinorigin.github.io/moon-warc/)
 
@@ -110,7 +110,7 @@ test "readme: multi-member .warc.gz round-trip and compressed byte-range CDXJ" {
 
 ## 作用域与非目标 / Scope & Non-Goals
 
-### 在范围内 (In Scope `v0.3.0`)
+### 在范围内 (In Scope `v0.3.1`)
 - ISO 28500:2009 (`WARC/1.0`) 与 ISO 28500:2017 (`WARC/1.1`) 全类型记录帧解析、编码、合规校验与 §9 分片重组。
 - 纯 MoonBit RFC 1951 DEFLATE / RFC 1952 **多成员 `.warc.gz`** 流式压缩、解压、CRC-32/ISIZE 校验与压缩字节范围索引。
 - 纯 MoonBit SHA-1 / SHA-256、Base32 / Hex、HTTP/1.x Chunked 实体提取、SURT、CDXJ、11 列 CDX、`revisit` 溯源与 RFC 8259 JSONL 导出。
@@ -164,14 +164,14 @@ moon test --target native
 
 ## 多目标验证矩阵与基准测试 / Verification & Benchmarks
 
-本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台上验证，共 **187 项**测试（185 个模块单元测试/Fuzz/负例 + **2 个 `README.mbt.md` 可执行文档测试**），`10,594` 行 `.mbt` 源码（35 个源文件）：
+本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台上验证，共 **189 项**测试（187 个模块单元测试/Fuzz/负例 + **2 个 `README.mbt.md` 可执行文档测试**），覆盖全部 11 个包 / 35 个 `.mbt` 源文件：
 
-| 编译目标 / 门禁 | 实测结果 | 端到端流水线吞吐 (`--release`, Apple M4, 9.24 MiB 工作负载) |
+| 编译目标 / 门禁 | 实测结果 | 端到端稳态流水线吞吐 (`--release`, Apple M4, 69.28 MiB 工作负载) |
 | --- | --- | --- |
-| **`wasm`** | **187 / 187 passed** | **`2.50 MiB/s`** (`3.702 s`) |
-| **`wasm-gc`** | **187 / 187 passed** | **`0.55 MiB/s`** (`16.937 s`) |
-| **`native`** | **187 / 187 passed** | **`0.51 MiB/s`** (`18.114 s`) |
-| **`js`** | **187 / 187 passed** | **`0.31 MiB/s`** (`29.611 s`) |
+| **`native`** | **189 / 189 passed** | **`87.53 MiB/s`** (`steady 0.791 s`, `wall 1.035 s`) |
+| **`wasm-gc`** | **189 / 189 passed** | **`66.19 MiB/s`** (`steady 1.047 s`, `wall 1.083 s`) |
+| **`js`** | **189 / 189 passed** | **`65.65 MiB/s`** (`steady 1.055 s`, `wall 1.133 s`) |
+| **`wasm`** | **189 / 189 passed** | **`54.30 MiB/s`** (`steady 1.276 s`, `wall 1.319 s`) |
 | **CLI 演示** (`cmd/main`) | `native` / `js` 逐字节一致 | 含 `.warc.gz` 多成员编码解析与压缩 CDXJ |
 | **Python 差分预言机** | **通过（exit 0）** | 对照 `hashlib`、`base64`、`zlib.crc32`、`gzip`（`compresslevel=9` 动态哈夫曼 + `FNAME`）、`json` |
 | **包洁净度** (`moon package --list`) | **零泄漏** | 通过 [`.moonignore`](.moonignore) 排除 `scripts/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md` 等非包文件 |

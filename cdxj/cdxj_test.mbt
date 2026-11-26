@@ -272,3 +272,36 @@ test "cdxj supports Int64 offsets > 2GiB, rejects negative/float JSON numbers, a
     is Err(@cdxj.InvalidJsonBlock(_)),
   )
 }
+
+///|
+test "cdxj tie-breaking is deterministic when records share surt, timestamp, and offset" {
+  let e_resp : @cdxj.CdxjEntry = {
+    surt: "org,example)/x",
+    timestamp: "20261126010000",
+    url: "https://example.org/x",
+    mime: Some("text/html"),
+    status: Some(200),
+    digest: Some("sha256:bbbb"),
+    length: 512L,
+    offset: 0L,
+    filename: "single-member.warc.gz",
+    warc_type: "response",
+  }
+  let e_res : @cdxj.CdxjEntry = {
+    surt: "org,example)/x",
+    timestamp: "20261126010000",
+    url: "https://example.org/x",
+    mime: Some("text/plain"),
+    status: None,
+    digest: Some("sha256:aaaa"),
+    length: 512L,
+    offset: 0L,
+    filename: "single-member.warc.gz",
+    warc_type: "resource",
+  }
+  let forward = @cdxj.CdxjIndex::from_entries([e_resp, e_res])
+  let reverse = @cdxj.CdxjIndex::from_entries([e_res, e_resp])
+  assert_eq(forward, reverse)
+  assert_eq(forward.get(0).unwrap().warc_type, "resource")
+  assert_eq(forward.get(1).unwrap().warc_type, "response")
+}

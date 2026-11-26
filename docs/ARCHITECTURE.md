@@ -1,6 +1,6 @@
-# moon-warc Architecture Guide (`v0.3.0`)
+# moon-warc Architecture Guide (`v0.3.1`)
 
-`XinOrigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)** and **RFC 1951/1952 multi-member `.warc.gz`**, built as a layered **Sans-IO** protocol engine across 11 workspace packages (`moon.mod` version `0.3.0`, `10,594` lines of `.mbt` across 35 files, 187/187 tests passing across `wasm`, `wasm-gc`, `js`, and `native`).
+`XinOrigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)** and **RFC 1951/1952 multi-member `.warc.gz`**, built as a layered **Sans-IO** protocol engine across 11 workspace packages (`moon.mod` version `0.3.1`, 35 `.mbt` files, 189/189 tests passing across `wasm`, `wasm-gc`, `js`, and `native`).
 
 ---
 

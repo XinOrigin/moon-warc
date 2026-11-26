@@ -15,18 +15,18 @@
 
 ## 2. 审查方式与确定性工程门禁 (Verification & Quality Gates)
 
-本项目 `v0.1.0`–`v0.2.0` 初始版本于 2026-11-25 在高密度 AI 辅助开发下完成，后续 `v0.2.1`–`v0.3.0` 经过完整的**交叉审计与缺陷清零**、`Int64` 位宽升级、多成员 `.warc.gz` 扩展及四端基准验证：
+本项目 `v0.1.0`–`v0.2.0` 初始版本于 2026-11-25 在高密度 AI 辅助开发下完成，后续 `v0.2.1`–`v0.3.1` 经过完整的**交叉审计与缺陷清零**、`Int64` 位宽升级、多成员 `.warc.gz` 扩展以及 9-bit 哈夫曼快速查表 / 零拷贝 `BytesView` 扫描优化与四端基准验证：
 
 1. **规范对照与交叉审计**：
    - 对照 **ISO 28500:2017**、**RFC 1951/1952**、**RFC 9112**、**RFC 4648** 与 **FIPS 180-4** 逐行核对并修复了交叉审计发现的 7 项隐患：将 `CdxjIndex.entries` 收紧为 `priv` 只读封装、为 `WarcReader` 补充 `ReaderLimits` 体积护栏、升级偏移量与 `Content-Length` 至 `Int64`、防护 `WarcHeader::serialize` 中的 `\r`/`\n` 注入、对 `to_surt` 空白与控制字符做百分号转义、补齐 §9 `continuation` 原点与仅末段 `Total-Length` 检查，以及统一 `WarcDate::parse_cdxj_timestamp` 日历校验。
    - 核查并锁定 MoonBit 语言语义细节：在 [`surt/surt.mbt`](surt/surt.mbt)、[`cdxj/cdxj.mbt`](cdxj/cdxj.mbt) 与 [`pipeline/filter.mbt`](pipeline/filter.mbt) 中显式使用 `String::lexical_compare`；在 [`gzip/`](gzip/) 中全部使用 `UInt32` / `Int64` 实现跨四端位精确 DEFLATE/CRC-32。
 
 2. **编译器静态契约、文档测试与零告警门禁**：
-   - 运行 `moon check --deny-warn` 确保全部 11 个包（`35` 份 `.mbt` 源码、`10,594` 行）零编译错误、零静态警告。
+   - 运行 `moon check --deny-warn` 确保全部 11 个包（`35` 份 `.mbt` 源码）零编译错误、零静态警告。
    - 运行 `moon fmt --check` 与 `moon info`，通过各包的 `pkg.generated.mbti` 追踪公共签名，并在 [`README.mbt.md`](README.mbt.md) 中提供由 `moon test` 直接编译运行的 `` ```moonbit check `` 文档测试。
 
 3. **四目标矩阵一致性测试与基准测量**：
-   - 全套 **187 项**测试（185 项模块单测/Fuzz/负例 + 2 项 `README.mbt.md` 文档测试）在 `wasm`、`wasm-gc`、`js` 与 `native` 四个后端均实测 **187 / 187 通过（0 失败）**，并已通过 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) 实测四端 9.24 MiB 流水线吞吐。
+   - 全套 **189 项**测试（187 项模块单测/Fuzz/负例 + 2 项 `README.mbt.md` 文档测试）在 `wasm`、`wasm-gc`、`js` 与 `native` 四个后端均实测 **189 / 189 通过（0 失败）**，并已通过 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) 实测四端 69.28 MiB 流水线吞吐（稳态 `54.30–87.53 MiB/s`）。
 
 4. **Python 差分验证交叉校验**：
    - 通过 [`scripts/verify_oracle.py`](scripts/verify_oracle.py) 在 `native` 探针下调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip`、`json`）核对 SHA-1/SHA-256 Base32、双向 multi-member `.warc.gz`（含 `gzip compresslevel=9` 动态哈夫曼与 `FNAME`）压缩偏移及 RFC 8259 JSONL 解析，并核验 CLI `native`/`js` 输出一致。

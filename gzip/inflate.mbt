@@ -82,11 +82,92 @@ fn BitReader::read_aligned_u16_le(self : BitReader) -> Result[Int32, GzipError] 
 }
 
 ///|
+priv struct ByteSink {
+  mut buf : FixedArray[Byte]
+  mut len : Int32
+}
+
+///|
+fn ByteSink::new(initial_cap : Int32) -> ByteSink {
+  let cap = if initial_cap < 256 { 256 } else { initial_cap }
+  { buf: FixedArray::make(cap, b'\x00'), len: 0, }
+}
+
+///|
+fn ByteSink::ensure_extra(self : ByteSink, extra : Int32) -> Unit {
+  if extra <= self.buf.length() - self.len {
+    return
+  }
+  if extra > 2147483647 - self.len {
+    abort("ByteSink buffer overflow")
+  }
+  let needed = self.len + extra
+  let doubled = if self.buf.length() > 1073741823 {
+    2147483647
+  } else {
+    self.buf.length() * 2
+  }
+  let new_cap = if doubled < needed { needed } else { doubled }
+  let next = FixedArray::make(new_cap, b'\x00')
+  for i in 0..<self.len {
+    next[i] = self.buf[i]
+  }
+  self.buf = next
+}
+
+///|
+fn ByteSink::push_byte(self : ByteSink, b : Byte) -> Unit {
+  if self.len >= self.buf.length() {
+    self.ensure_extra(1)
+  }
+  self.buf[self.len] = b
+  self.len = self.len + 1
+}
+
+///|
+fn ByteSink::push_slice(
+  self : ByteSink,
+  src : BytesView,
+  start : Int32,
+  n : Int32,
+) -> Unit {
+  if n <= 0 {
+    return
+  }
+  self.ensure_extra(n)
+  let dst = self.len
+  for i in 0..<n {
+    self.buf[dst + i] = src[start + i]
+  }
+  self.len = dst + n
+}
+
+///|
+fn ByteSink::copy_match(
+  self : ByteSink,
+  dist : Int32,
+  match_len : Int32,
+) -> Unit {
+  self.ensure_extra(match_len)
+  let dst = self.len
+  let src = dst - dist
+  for i in 0..<match_len {
+    self.buf[dst + i] = self.buf[src + i]
+  }
+  self.len = dst + match_len
+}
+
+///|
+fn ByteSink::to_bytes(self : ByteSink) -> Bytes {
+  Bytes::makei(self.len, i => self.buf[i])
+}
+
+///|
 /// Consumes a contiguous byte slice after aligning to byte boundary.
 fn BitReader::read_aligned_bytes(
   self : BitReader,
   n : Int32,
-  out : Array[Byte],
+  out : ByteSink,
   max_output : Int32,
 ) -> Result[Unit, GzipError] {
   // Drain buffered whole bytes (if any) first, preserving exact stream cursor
@@ -95,17 +176,15 @@ fn BitReader::read_aligned_bytes(
   self.byte_pos = unread_start
   self.bit_buf = 0U
   self.bit_cnt = 0
-  if self.byte_pos + n > self.data.length() {
+  if self.data.length() - self.byte_pos < n {
     return Err(UnexpectedEof("truncated DEFLATE stored block"))
   }
-  if max_output >= 0 && out.length() + n > max_output {
+  if max_output >= 0 && max_output - out.len < n {
     return Err(
       LimitExceeded("decompressed stream exceeds max_output_bytes limit"),
     )
   }
-  for i in 0..<n {
-    out.push(self.data[self.byte_pos + i])
-  }
+  out.push_slice(self.data, self.byte_pos, n)
   self.byte_pos = self.byte_pos + n
   Ok(())
 }
@@ -118,9 +197,19 @@ fn BitReader::byte_offset_after_align(self : BitReader) -> Int32 {
 }
 
 ///|
+let huff_fast_bits : Int32 = 9
+
+///|
+let huff_fast_size : Int32 = 512
+
+///|
+let huff_fast_mask : UInt32 = 511U
+
+///|
 priv struct HuffmanTable {
   counts : FixedArray[Int32]
   symbols : FixedArray[Int32]
+  fast : FixedArray[Int32]
 }
 
 ///|
@@ -149,18 +238,40 @@ fn build_huffman(
     }
   }
   let offsets = FixedArray::make(16, 0)
+  let bl_code = FixedArray::make(16, 0)
+  let mut c = 0
   for len in 1..<max_huff_bits {
     offsets[len + 1] = offsets[len] + counts[len]
+    c = (c + counts[len]) << 1
+    bl_code[len + 1] = c
   }
   let symbols = FixedArray::make(num_syms, 0)
+  let fast = FixedArray::make(huff_fast_size, 0)
   for sym in 0..<num_syms {
     let l = lengths[sym]
     if l != 0 {
       symbols[offsets[l]] = sym
       offsets[l] = offsets[l] + 1
+      if l <= huff_fast_bits {
+        let msb_code = bl_code[l]
+        bl_code[l] = msb_code + 1
+        let mut rev = 0
+        let mut m = msb_code
+        for _ in 0..<l {
+          rev = (rev << 1) | (m & 1)
+          m = m >> 1
+        }
+        let entry = (l << 16) | sym
+        let step = 1 << l
+        let mut slot = rev
+        while slot < huff_fast_size {
+          fast[slot] = entry
+          slot = slot + step
+        }
+      }
     }
   }
-  Ok({ counts, symbols, })
+  Ok({ counts, symbols, fast, })
 }
 
 ///|
@@ -168,6 +279,22 @@ fn decode_huffman(
   br : BitReader,
   table : HuffmanTable,
 ) -> Result[Int32, GzipError] {
+  let data_len = br.data.length()
+  while br.bit_cnt <= 23 && br.byte_pos < data_len {
+    let b = br.data[br.byte_pos].to_uint()
+    br.byte_pos = br.byte_pos + 1
+    br.bit_buf = br.bit_buf | (b << br.bit_cnt)
+    br.bit_cnt = br.bit_cnt + 8
+  }
+  let entry = table.fast[(br.bit_buf & huff_fast_mask).reinterpret_as_int()]
+  if entry != 0 {
+    let len = entry >> 16
+    if br.bit_cnt >= len {
+      br.bit_buf = br.bit_buf >> len
+      br.bit_cnt = br.bit_cnt - len
+      return Ok(entry & 0xffff)
+    }
+  }
   let mut code = 0
   let mut first = 0
   let mut index = 0
@@ -352,7 +479,7 @@ fn inflate_huffman_block(
   br : BitReader,
   lit_tbl : HuffmanTable,
   dist_tbl : HuffmanTable,
-  out : Array[Byte],
+  out : ByteSink,
   max_output : Int32,
 ) -> Result[Unit, GzipError] {
   while true {
@@ -361,12 +488,12 @@ fn inflate_huffman_block(
       Err(e) => return Err(e)
     }
     if sym < 256 {
-      if max_output >= 0 && out.length() + 1 > max_output {
+      if max_output >= 0 && max_output - out.len < 1 {
         return Err(
           LimitExceeded("decompressed stream exceeds max_output_bytes limit"),
         )
       }
-      out.push(sym.to_byte())
+      out.push_byte(sym.to_byte())
     } else if sym == 256 {
       return Ok(())
     } else {
@@ -397,20 +524,17 @@ fn inflate_huffman_block(
         Err(e) => return Err(e)
       }
       let dist = dist_base[d_sym] + extra_d
-      if dist <= 0 || dist > out.length() {
+      if dist <= 0 || dist > out.len {
         return Err(
           InvalidDeflateStream("DEFLATE match distance exceeds output history"),
         )
       }
-      if max_output >= 0 && out.length() + match_len > max_output {
+      if max_output >= 0 && max_output - out.len < match_len {
         return Err(
           LimitExceeded("decompressed stream exceeds max_output_bytes limit"),
         )
       }
-      for _ in 0..<match_len {
-        let src_idx = out.length() - dist
-        out.push(out[src_idx])
-      }
+      out.copy_match(dist, match_len)
     }
   }
   Ok(())
@@ -425,7 +549,18 @@ pub fn inflate_raw(
   max_output_bytes~ : Int32 = 67108864,
 ) -> Result[(Bytes, Int32), GzipError] {
   let br = BitReader::new(data, start)
-  let out : Array[Byte] = []
+  let rem_in = data.length() - start
+  let init_cap = if rem_in > 0 {
+    let est = if rem_in > 536870911 { rem_in } else { rem_in * 2 }
+    if max_output_bytes >= 0 && est > max_output_bytes {
+      max_output_bytes
+    } else {
+      est
+    }
+  } else {
+    256
+  }
+  let out = ByteSink::new(init_cap)
   let mut bfinal = 0
   while bfinal == 0 {
     bfinal = match br.read_bits(1) {
@@ -475,5 +610,5 @@ pub fn inflate_raw(
     }
   }
   let end_pos = br.byte_offset_after_align()
-  Ok((Bytes::makei(out.length(), i => out[i]), end_pos))
+  Ok((out.to_bytes(), end_pos))
 }

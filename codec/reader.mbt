@@ -53,7 +53,8 @@ fn checked_add_i64(a : Int64, b : Int64) -> Int64? {
 ///|
 /// Sans-IO incremental streaming parser for ISO 28500 WARC 1.0/1.1 archives.
 pub struct WarcReader {
-  priv mut buf : Array[Byte]
+  priv mut buf : FixedArray[Byte]
+  priv mut buf_len : Int32
   priv mut cursor : Int32
   priv mut header_scan_pos : Int32
   priv mut total_consumed : Int64
@@ -67,7 +68,8 @@ pub fn WarcReader::new(
   limits~ : ReaderLimits = ReaderLimits::default(),
 ) -> WarcReader {
   {
-    buf: [],
+    buf: FixedArray::make(0, b'\x00'),
+    buf_len: 0,
     cursor: 0,
     header_scan_pos: 0,
     total_consumed: 0L,
@@ -96,14 +98,55 @@ pub fn WarcReader::set_bytes_consumed(
 ///|
 /// Appends raw archive bytes into the streaming reader buffer.
 pub fn WarcReader::feed(self : WarcReader, chunk : BytesView) -> Unit {
-  for i in 0..<chunk.length() {
-    self.buf.push(chunk[i])
+  let n = chunk.length()
+  if n == 0 {
+    return
   }
+  if self.cursor == self.buf_len {
+    self.buf_len = 0
+    self.cursor = 0
+    self.header_scan_pos = 0
+  } else if n > self.buf.length() - self.buf_len && self.cursor > 0 {
+    let rem = self.available()
+    for i in 0..<rem {
+      self.buf[i] = self.buf[self.cursor + i]
+    }
+    self.header_scan_pos = if self.header_scan_pos > self.cursor {
+      self.header_scan_pos - self.cursor
+    } else {
+      0
+    }
+    self.buf_len = rem
+    self.cursor = 0
+  }
+  if n > 2147483647 - self.buf_len {
+    abort("WarcReader buffer overflow")
+  }
+  let needed = self.buf_len + n
+  if needed > self.buf.length() {
+    let doubled = if self.buf.length() > 1073741823 {
+      2147483647
+    } else {
+      self.buf.length() * 2
+    }
+    let cap0 = if doubled < 256 { 256 } else { doubled }
+    let new_cap = if cap0 < needed { needed } else { cap0 }
+    let next = FixedArray::make(new_cap, b'\x00')
+    for i in 0..<self.buf_len {
+      next[i] = self.buf[i]
+    }
+    self.buf = next
+  }
+  let base = self.buf_len
+  for i in 0..<n {
+    self.buf[base + i] = chunk[i]
+  }
+  self.buf_len = needed
 }
 
 ///|
 fn WarcReader::available(self : WarcReader) -> Int32 {
-  self.buf.length() - self.cursor
+  self.buf_len - self.cursor
 }
 
 ///|
@@ -111,24 +154,23 @@ fn WarcReader::compact_if_needed(self : WarcReader) -> Unit {
   if self.cursor == 0 {
     return
   }
-  if self.cursor == self.buf.length() {
-    self.buf = []
+  if self.cursor == self.buf_len {
+    self.buf_len = 0
     self.cursor = 0
     self.header_scan_pos = 0
     return
   }
   let rem = self.available()
   if self.cursor >= 4096 && self.cursor >= rem {
-    let next : Array[Byte] = Array::make(rem, b'\x00')
     for i in 0..<rem {
-      next[i] = self.buf[self.cursor + i]
+      self.buf[i] = self.buf[self.cursor + i]
     }
     self.header_scan_pos = if self.header_scan_pos > self.cursor {
       self.header_scan_pos - self.cursor
     } else {
       0
     }
-    self.buf = next
+    self.buf_len = rem
     self.cursor = 0
   }
 }
@@ -145,7 +187,7 @@ fn WarcReader::slice_bytes(
 
 ///|
 fn WarcReader::find_crlfcrlf(self : WarcReader) -> Int32? {
-  let limit = self.buf.length() - 3
+  let limit = self.buf_len - 3
   let mut i = if self.header_scan_pos > self.cursor {
     self.header_scan_pos
   } else {
@@ -346,30 +388,153 @@ pub fn WarcReader::finish(self : WarcReader) -> Result[Unit, CodecError] {
 }
 
 ///|
+fn find_crlfcrlf_view(
+  raw : BytesView,
+  start : Int32,
+  total_len : Int32,
+  max_header_bytes : Int32,
+) -> Result[Int32?, CodecError] {
+  let limit = total_len - 3
+  let mut i = start
+  while i < limit {
+    if max_header_bytes >= 0 && i - start > max_header_bytes {
+      return Err(
+        LimitExceeded(
+          "WARC header exceeds max_header_bytes (\{max_header_bytes.to_string()})",
+        ),
+      )
+    }
+    if raw[i] == b'\r' &&
+      raw[i + 1] == b'\n' &&
+      raw[i + 2] == b'\r' &&
+      raw[i + 3] == b'\n' {
+      return Ok(Some(i))
+    }
+    i = i + 1
+  }
+  Ok(None)
+}
+
+///|
 /// Streams through a complete WARC byte sequence invoking `on_record` per decoded record
-/// without allocating a combined `Array[WarcRecord]`, returning the number of scanned records.
+/// without allocating a combined `Array[WarcRecord]` or copying the input buffer, returning the count.
 pub fn scan_all(
   raw : BytesView,
   limits~ : ReaderLimits = ReaderLimits::default(),
   on_record : (WarcRecord) -> Unit,
 ) -> Result[Int64, CodecError] {
-  let reader = WarcReader::new(limits~)
-  reader.feed(raw)
+  let total_len = raw.length()
+  let mut pos = 0
+  let mut consumed = 0L
   let mut count = 0L
-  while true {
-    match reader.next_record() {
+  while pos < total_len {
+    let end_idx = match
+      find_crlfcrlf_view(raw, pos, total_len, limits.max_header_bytes) {
       Err(e) => return Err(e)
-      Ok(None) => break
-      Ok(Some(rec)) => {
-        on_record(rec)
-        count = count + 1L
+      Ok(Some(idx)) => idx
+      Ok(None) => {
+        let rem = total_len - pos
+        if limits.max_header_bytes >= 0 && rem > limits.max_header_bytes {
+          return Err(
+            LimitExceeded(
+              "unterminated WARC header exceeds max_header_bytes (\{limits.max_header_bytes.to_string()})",
+            ),
+          )
+        }
+        return Err(
+          UnexpectedEof(
+            "trailing \{rem.to_string()} bytes of incomplete WARC header at EOF",
+          ),
+        )
       }
     }
+    let hdr_body_len = end_idx - pos
+    if limits.max_header_bytes >= 0 && hdr_body_len > limits.max_header_bytes {
+      return Err(
+        LimitExceeded(
+          "WARC header exceeds max_header_bytes (\{limits.max_header_bytes.to_string()})",
+        ),
+      )
+    }
+    let hdr_len = (hdr_body_len + 4).to_int64()
+    let rec_offset = consumed
+    let hdr = match @header.WarcHeader::parse(raw[pos:end_idx]) {
+      Ok(h) => h
+      Err(e) => return Err(HeaderError(e))
+    }
+    let content_len_i64 = match hdr.parse_content_length() {
+      Ok(n) => n
+      Err(e) => return Err(HeaderError(e))
+    }
+    if limits.max_payload_bytes >= 0 &&
+      content_len_i64 > limits.max_payload_bytes.to_int64() {
+      return Err(
+        LimitExceeded(
+          "WARC Content-Length \{content_len_i64.to_string()} exceeds max_payload_bytes (\{limits.max_payload_bytes.to_string()})",
+        ),
+      )
+    }
+    if content_len_i64 > 2147483647L {
+      return Err(
+        LimitExceeded(
+          "WARC payload exceeds single-record buffer capacity (2 GiB)",
+        ),
+      )
+    }
+    let content_len = content_len_i64.to_int()
+    let payload_start = end_idx + 4
+    let avail_after_hdr = total_len - payload_start
+    if avail_after_hdr < content_len {
+      return Err(
+        UnexpectedEof(
+          "truncated WARC payload at EOF: expected \{content_len.to_string()} bytes, got \{avail_after_hdr.to_string()}",
+        ),
+      )
+    }
+    let sep_start = payload_start + content_len
+    let avail_after_payload = total_len - sep_start
+    if avail_after_payload < 4 {
+      return Err(
+        UnexpectedEof("missing trailing \\r\\n\\r\\n record separator at EOF"),
+      )
+    }
+    if raw[sep_start] != b'\r' ||
+      raw[sep_start + 1] != b'\n' ||
+      raw[sep_start + 2] != b'\r' ||
+      raw[sep_start + 3] != b'\n' {
+      let sep_offset = rec_offset + hdr_len + content_len_i64
+      return Err(
+        InvalidTrailingSeparator(
+          "expected \\r\\n\\r\\n after WARC payload at offset \{sep_offset.to_string()}",
+        ),
+      )
+    }
+    let total_rec_len = match checked_add_i64(hdr_len + content_len_i64, 4L) {
+      Some(v) => v
+      None =>
+        return Err(
+          InvalidContentLength("WARC record length exceeds Int64 range"),
+        )
+    }
+    let next_consumed = match checked_add_i64(consumed, total_rec_len) {
+      Some(v) => v
+      None =>
+        return Err(
+          InvalidContentLength("WARC stream byte offset exceeds Int64 range"),
+        )
+    }
+    let payload = raw[payload_start:sep_start].to_owned()
+    on_record({
+      header: hdr,
+      payload,
+      offset: rec_offset,
+      record_length: total_rec_len,
+    })
+    pos = sep_start + 4
+    consumed = next_consumed
+    count = count + 1L
   }
-  match reader.finish() {
-    Ok(_) => Ok(count)
-    Err(e) => Err(e)
-  }
+  Ok(count)
 }
 
 ///|

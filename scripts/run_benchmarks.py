@@ -56,10 +56,8 @@ fn make_corpus() -> (Array[@codec.WarcRecord], Bytes, Bytes) {
 }
 
 ///|
-fn main {
+fn run_bench(iters : Int) -> Unit {
   let (_records, plain, gz) = make_corpus()
-  // Repeat 20 iterations (~20x plain stream) so startup overhead is small compared to workload
-  let iters = 20
   let mut parsed_bytes = 0L
   let mut gz_bytes = 0L
   let mut digest_bytes = 0L
@@ -79,6 +77,11 @@ fn main {
   }
   println("BENCH_DONE|plain_bytes=" + parsed_bytes.to_string() + "|gz_uncompressed_bytes=" + gz_bytes.to_string() + "|gz_compressed_bytes=" + (gz.length().to_int64() * iters.to_int64()).to_string() + "|digest_bytes=" + digest_bytes.to_string() + "|cdx_hits=" + cdx_hits.to_string())
 }
+
+///|
+fn main {
+  run_bench(__ITERS__)
+}
 '''
 
 
@@ -93,10 +96,39 @@ def main() -> int:
     atexit.register(cleanup)
     tmp_dir.mkdir(parents=True, exist_ok=True)
     (tmp_dir / "moon.pkg").write_text(MOON_PKG, encoding="utf-8")
-    (tmp_dir / "main.mbt").write_text(BENCH_MBT, encoding="utf-8")
 
     results = []
+    iters = 150
     for target in ["native", "js", "wasm-gc", "wasm"]:
+        # 1) Measure 0-iter baseline (runtime spawn + corpus encode)
+        (tmp_dir / "main.mbt").write_text(BENCH_MBT.replace("__ITERS__", "0"), encoding="utf-8")
+        build0 = subprocess.run(
+            ["moon", "build", TMP_PKG, "--target", target, "--release"],
+            cwd=str(REPO_ROOT),
+            env=moon_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if build0.returncode != 0:
+            print(f"Baseline build failed for {target}:\n{build0.stdout}\n{build0.stderr}", file=sys.stderr)
+            return build0.returncode
+        b0 = time.perf_counter()
+        run0 = subprocess.run(
+            ["moon", "run", TMP_PKG, "--target", target, "--release"],
+            cwd=str(REPO_ROOT),
+            env=moon_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        dt_base = time.perf_counter() - b0
+        if run0.returncode != 0:
+            print(f"Baseline run failed for {target}:\n{run0.stdout}\n{run0.stderr}", file=sys.stderr)
+            return run0.returncode
+
+        # 2) Measure 50-iter full benchmark
+        (tmp_dir / "main.mbt").write_text(BENCH_MBT.replace("__ITERS__", str(iters)), encoding="utf-8")
         build = subprocess.run(
             ["moon", "build", TMP_PKG, "--target", target, "--release"],
             cwd=str(REPO_ROOT),
@@ -126,8 +158,13 @@ def main() -> int:
         kv = dict(item.split("=", 1) for item in line.split("|")[1:])
         plain_mb = int(kv["plain_bytes"]) / (1024 * 1024)
         total_pipeline_mb = plain_mb * 3  # plain parse + sha256 + gz inflate/parse
-        results.append((target, dt, plain_mb, total_pipeline_mb / dt, int(kv["gz_compressed_bytes"])))
-        print(f"{target}: elapsed={dt:.3f}s plain={plain_mb:.2f}MiB pipeline_throughput={total_pipeline_mb/dt:.2f} MiB/s ({line})")
+        steady_dt = max(0.001, dt - dt_base)
+        results.append((target, dt, dt_base, steady_dt, plain_mb, total_pipeline_mb / dt, total_pipeline_mb / steady_dt, int(kv["gz_compressed_bytes"])))
+        print(
+            f"{target}: wall={dt:.3f}s (baseline={dt_base:.3f}s, steady={steady_dt:.3f}s) "
+            f"plain={plain_mb:.2f}MiB wall_throughput={total_pipeline_mb/dt:.2f} MiB/s "
+            f"steady_throughput={total_pipeline_mb/steady_dt:.2f} MiB/s ({line})"
+        )
 
     return 0
 
