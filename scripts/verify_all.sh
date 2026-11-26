@@ -40,7 +40,7 @@ fi
 echo "=== Package Archive Hygiene (moon package --list) ==="
 moon package --list >pkg-list.txt 2>&1
 cat pkg-list.txt
-if grep -E '^(scripts/|_build/|target/|\.github/|docs/|PROJECT_PROPOSAL\.md|AI_USAGE\.md|SUBMISSION_CHECKLIST\.md)' pkg-list.txt; then
+if grep -E '^(scripts/|web_demo/|_build/|target/|\.github/|docs/|PROJECT_PROPOSAL\.md|AI_USAGE\.md|SUBMISSION_CHECKLIST\.md)' pkg-list.txt; then
   echo "ERROR: non-package files leaked into moon package"
   exit 1
 fi

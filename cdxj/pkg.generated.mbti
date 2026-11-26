@@ -1,9 +1,9 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "xinorigin/moon_warc/cdxj"
+package "XinOrigin/moon_warc/cdxj"
 
 import {
+  "XinOrigin/moon_warc/codec",
   "moonbitlang/core/debug",
-  "xinorigin/moon_warc/codec",
 }
 
 // Values

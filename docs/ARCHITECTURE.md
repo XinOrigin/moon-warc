@@ -1,6 +1,6 @@
-# moon-warc Architecture Guide (`v0.2.1`)
+# moon-warc Architecture Guide (`v0.3.0`)
 
-`xinorigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)**, built as a layered **Sans-IO** protocol engine across 10 workspace packages (`moon.mod` version `0.2.1`, 8,748 lines of `.mbt` across 30 files, 173/173 tests passing across `wasm`, `wasm-gc`, `js`, and `native`).
+`XinOrigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)** and **RFC 1951/1952 multi-member `.warc.gz`**, built as a layered **Sans-IO** protocol engine across 11 workspace packages (`moon.mod` version `0.3.0`, `10,594` lines of `.mbt` across 35 files, 187/187 tests passing across `wasm`, `wasm-gc`, `js`, and `native`).
 
 ---
 
@@ -9,8 +9,8 @@
 ```mermaid
 flowchart TD
   CMD["cmd/main (CLI Showcase)"] --> ROOT["moon_warc (Root Facade)"]
-  ROOT --> CODEC["codec (Sans-IO Stream Reader & Builders)"]
-  ROOT --> CDXJ["cdxj (Sorted Index & Binary Search)"]
+  ROOT --> CODEC["codec (Sans-IO Stream Reader, Limits & .warc.gz)"]
+  ROOT --> CDXJ["cdxj (Private Sorted Index & Binary Search)"]
   ROOT --> VAL["validate (22 Diagnostic Codes & Revisit Resolver)"]
   ROOT --> PIPE["pipeline (ISO 28500 §9 Segmentation, Filter, CDX-11 & JSONL)"]
   ROOT --> HDR["header (WARC 1.0/1.1 Headers & UTC Date)"]
@@ -36,8 +36,10 @@ flowchart TD
   CODEC --> HDR
   CODEC --> DIG
   CODEC --> HTTP
+  CODEC --> GZIP["gzip (RFC 1951 DEFLATE/LZ77, CRC-32 & RFC 1952)"]
 
-  HDR --> CORE["moonbitlang/core (Zero External Deps)"]
+  GZIP --> CORE["moonbitlang/core (Zero External Deps)"]
+  HDR --> CORE
   DIG --> CORE
   SURT --> CORE
   HTTP --> CORE

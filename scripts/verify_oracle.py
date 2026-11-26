@@ -217,7 +217,7 @@ def verify_cli_outputs() -> None:
         raise AssertionError("CLI stdout differs between native and js targets")
 
     required_markers = [
-        "moon-warc v0.2.1",
+        "moon-warc v0.3.0",
         "Sample archive size: 3188 bytes",
         "=== Records (6) ===",
         "type=warcinfo",
@@ -237,6 +237,8 @@ def verify_cli_outputs() -> None:
         "payload_exact=true",
         "=== Subset Filter & Export (CDX-11 / JSONL) ===",
         "CDX-11 lines=4 (1 header + 3 rows) | JSONL lines=6",
+        "=== Multi-Member .warc.gz & Compressed CDXJ ===",
+        "Multi-member .warc.gz: members=6",
     ]
     for marker in required_markers:
         if marker not in native_out:
@@ -548,16 +550,16 @@ def run_differential_probe() -> None:
         probe_dir.mkdir(parents=True, exist_ok=True)
         (probe_dir / "moon.pkg").write_text(
             'import {\n'
-            '  "xinorigin/moon_warc" @warc,\n'
-            '  "xinorigin/moon_warc/codec",\n'
-            '  "xinorigin/moon_warc/cdxj",\n'
-            '  "xinorigin/moon_warc/validate",\n'
-            '  "xinorigin/moon_warc/digest",\n'
-            '  "xinorigin/moon_warc/header",\n'
-            '  "xinorigin/moon_warc/surt",\n'
-            '  "xinorigin/moon_warc/http_payload",\n'
-            '  "xinorigin/moon_warc/gzip",\n'
-            '  "xinorigin/moon_warc/pipeline",\n'
+            '  "XinOrigin/moon_warc" @warc,\n'
+            '  "XinOrigin/moon_warc/codec",\n'
+            '  "XinOrigin/moon_warc/cdxj",\n'
+            '  "XinOrigin/moon_warc/validate",\n'
+            '  "XinOrigin/moon_warc/digest",\n'
+            '  "XinOrigin/moon_warc/header",\n'
+            '  "XinOrigin/moon_warc/surt",\n'
+            '  "XinOrigin/moon_warc/http_payload",\n'
+            '  "XinOrigin/moon_warc/gzip",\n'
+            '  "XinOrigin/moon_warc/pipeline",\n'
             '}\n'
             'pkgtype(kind: "executable")\n',
             encoding="utf-8",
@@ -980,7 +982,8 @@ def main() -> int:
     print(
         "PYTHON ORACLE PASSED: CLI (native+js), SHA-1/SHA-256 Base32 digests, "
         "chunked HTTP, SURT/CDXJ, revisit resolution, folded headers, binary payloads, "
-        "byte-for-byte roundtrip, 6 negative archives, and v0.2.1 segmentation/subset/CDX-11/JSONL verified."
+        "byte-for-byte roundtrip, 6 negative archives, bidirectional Python gzip/.warc.gz, "
+        "and v0.3.0 segmentation/subset/CDX-11/JSONL verified."
     )
     return 0
 

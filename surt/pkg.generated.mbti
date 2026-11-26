@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "xinorigin/moon_warc/surt"
+package "XinOrigin/moon_warc/surt"
 
 import {
   "moonbitlang/core/debug",

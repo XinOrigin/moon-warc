@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "xinorigin/moon_warc/digest"
+package "XinOrigin/moon_warc/digest"
 
 import {
   "moonbitlang/core/debug",
