@@ -65,7 +65,7 @@ pub fn export_cdx11(
   if include_header {
     lines.push(" CDX N b a m s k r M S V g")
   }
-  for e in index.entries {
+  for e in index.entries() {
     let surt_s = sanitize_cdx_field(e.surt)
     let url_s = sanitize_cdx_field(e.url)
     let mime_s = sanitize_cdx_field(e.mime.unwrap_or("-"))
@@ -159,6 +159,22 @@ fn write_json_int_field(
   first : Bool,
   key : String,
   val : Int32,
+) -> Bool {
+  if !first {
+    sb.write_char(',')
+  }
+  write_json_escaped(sb, key)
+  sb.write_char(':')
+  sb.write_string(val.to_string())
+  false
+}
+
+///|
+fn write_json_int64_field(
+  sb : StringBuilder,
+  first : Bool,
+  key : String,
+  val : Int64,
 ) -> Bool {
   if !first {
     sb.write_char(',')
@@ -268,8 +284,8 @@ pub fn export_jsonl(
       "date",
       hdr.warc_date().unwrap_or(""),
     )
-    first = write_json_int_field(sb, first, "offset", rec.offset)
-    first = write_json_int_field(sb, first, "length", rec.record_length)
+    first = write_json_int64_field(sb, first, "offset", rec.offset)
+    first = write_json_int64_field(sb, first, "length", rec.record_length)
     first = write_json_int_field(
       sb,
       first,

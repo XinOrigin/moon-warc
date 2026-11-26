@@ -8,8 +8,8 @@ pub fn make_record(
   {
     header: @header.WarcHeader::new(version, fields),
     payload,
-    offset: 0,
-    record_length: 0,
+    offset: 0L,
+    record_length: 0L,
   }
 }
 

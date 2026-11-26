@@ -86,7 +86,7 @@ pub fn segment_record(
     None => ()
   }
   let out : Array[@codec.WarcRecord] = [
-    { header: first_hdr, payload: first_slice, offset: 0, record_length: 0, },
+    { header: first_hdr, payload: first_slice, offset: 0L, record_length: 0L, },
   ]
   let mut pos = max_segment_bytes
   let mut seg_num = 2
@@ -337,12 +337,19 @@ pub fn reassemble_segments(
           buf.write_bytes(cont_rec.payload)
         }
         let full_payload = buf.to_bytes()
-        for pair in segs {
-          let cont_hdr = pair.1.header
+        for j in 0..<segs.length() {
+          let cont_hdr = segs[j].1.header
           if cont_hdr.get("WARC-Segment-Total-Length") is Some(_) {
+            if j != segs.length() - 1 {
+              return Err(
+                TotalLengthMismatch(
+                  "WARC-Segment-Total-Length is only permitted on the final continuation segment",
+                ),
+              )
+            }
             match cont_hdr.segment_total_length() {
               Some(expected_total) =>
-                if expected_total != full_payload.length() {
+                if expected_total != full_payload.length().to_int64() {
                   return Err(
                     TotalLengthMismatch(
                       "WARC-Segment-Total-Length \{expected_total.to_string()} != reassembled \{full_payload.length().to_string()}",
@@ -373,7 +380,7 @@ pub fn reassemble_segments(
           header: rebuilt_hdr,
           payload: full_payload,
           offset: rec.offset,
-          record_length: 0,
+          record_length: 0L,
         })
       }
       Some(_) =>

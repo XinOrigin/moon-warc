@@ -19,7 +19,7 @@ pub(all) struct Diagnostic {
   severity : Severity
   code : String
   record_index : Int32
-  offset : Int32
+  offset : Int64
   message : String
 }
 

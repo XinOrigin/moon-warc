@@ -82,12 +82,12 @@ fn fuzz_assert_stream_matches(
   match fuzz_stream_with_chunk(wire, chunk_sz) {
     Ok(got) => {
       assert_eq(got, expected)
-      let mut expected_off = 0
+      let mut expected_off = 0L
       for rec in got {
         assert_eq(rec.offset, expected_off)
         expected_off = expected_off + rec.record_length
       }
-      assert_eq(expected_off, wire.length())
+      assert_eq(expected_off, wire.length().to_int64())
     }
     Err(_) => fail("streaming parse failed at chunk_sz=\{chunk_sz.to_string()}")
   }

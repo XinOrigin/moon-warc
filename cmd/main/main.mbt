@@ -46,9 +46,7 @@ fn main {
 
   println("")
   let index = @warc.build_cdxj_index(records, filename="sample-crawl-2026.warc")
-  println(
-    "=== Sorted CDXJ Index (\{index.entries.length().to_string()} entries) ===",
-  )
+  println("=== Sorted CDXJ Index (\{index.length().to_string()} entries) ===")
   println(index.format_all())
 
   let exact = index.lookup_exact("https://example.org:443/index.html#top")
@@ -149,7 +147,7 @@ fn main {
         "Subset (surt='org,example)' status=200..299 +warcinfo): records=\{sub_recs.length().to_string()} wire=\{sub_wire.length().to_string()}B valid=\{sub_rep.is_valid().to_string()}",
       )
       println(
-        "CDX-11 lines=\{cdx11_lines.length().to_string()} (1 header + \{index.entries.length().to_string()} rows) | JSONL lines=\{jsonl_lines.length().to_string()}",
+        "CDX-11 lines=\{cdx11_lines.length().to_string()} (1 header + \{index.length().to_string()} rows) | JSONL lines=\{jsonl_lines.length().to_string()}",
       )
     }
   }

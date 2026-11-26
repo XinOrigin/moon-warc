@@ -98,18 +98,11 @@ fn normalize_timestamp(raw : String) -> String? {
   let s = raw.trim().to_owned()
   match @header.WarcDate::parse(s) {
     Ok(d) => Some(d.to_cdxj_timestamp())
-    Err(_) => {
-      if s.length() != 14 {
-        return None
+    Err(_) =>
+      match @header.WarcDate::parse_cdxj_timestamp(s) {
+        Ok(d) => Some(d.to_cdxj_timestamp())
+        Err(_) => None
       }
-      for i in 0..<14 {
-        let c = s[i].to_int()
-        if c < 48 || c > 57 {
-          return None
-        }
-      }
-      Some(s)
-    }
   }
 }
 

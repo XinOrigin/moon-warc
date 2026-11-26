@@ -24,8 +24,8 @@ pub(all) struct CdxjEntry {
   mime : String?
   status : Int32?
   digest : String?
-  length : Int32
-  offset : Int32
+  length : Int64
+  offset : Int64
   filename : String
   warc_type : String
 }
@@ -39,11 +39,15 @@ pub(all) enum CdxjError {
 
 #derive(Eq, @debug.Debug)
 pub struct CdxjIndex {
-  entries : Array[CdxjEntry]
+  // private fields
 }
 pub fn CdxjIndex::build(Array[@codec.WarcRecord], filename? : String) -> Self
+pub fn CdxjIndex::entries(Self) -> Array[CdxjEntry]
 pub fn CdxjIndex::format_all(Self) -> String
 pub fn CdxjIndex::from_entries(Array[CdxjEntry]) -> Self
+pub fn CdxjIndex::get(Self, Int32) -> CdxjEntry?
+pub fn CdxjIndex::is_empty(Self) -> Bool
+pub fn CdxjIndex::length(Self) -> Int32
 pub fn CdxjIndex::lookup_closest(Self, StringView, StringView) -> CdxjEntry?
 pub fn CdxjIndex::lookup_exact(Self, StringView) -> Array[CdxjEntry]
 pub fn CdxjIndex::lookup_prefix(Self, StringView) -> Array[CdxjEntry]

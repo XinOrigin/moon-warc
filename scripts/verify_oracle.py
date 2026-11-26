@@ -627,7 +627,7 @@ fn main {{
   println("VAL_A|" + rep_a.is_valid().to_string() + "|" + rep_a.error_count.to_string() + "|" + rep_a.warning_count.to_string())
 
   let cdx_a = @warc.build_cdxj_index(recs_a, filename="oracle-a.warc")
-  println("CDXJ_A_COUNT|" + cdx_a.entries.length().to_string())
+  println("CDXJ_A_COUNT|" + cdx_a.length().to_string())
   for line in cdx_a.format_all().split("\\n") {{
     let line_str = line.to_owned()
     match @cdxj.parse_line(line_str) {{

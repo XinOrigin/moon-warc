@@ -32,7 +32,7 @@ test "WarcHeader parses folded headers case-insensitive getters and round-trips"
     Ok(h) => {
       assert_eq(h.version, @header.Warc1_1)
       assert_eq(h.warc_type(), Some(@header.Response))
-      assert_eq(h.content_length(), Some(42))
+      assert_eq(h.content_length(), Some(42L))
       assert_eq(h.target_uri(), Some("https://example.org/hello"))
       assert_eq(h.concurrent_to(), ["<urn:uuid:aaaa>", "<urn:uuid:bbbb>"])
       assert_eq(h.get("x-note"), Some("folded header value"))
@@ -116,7 +116,7 @@ test "WarcHeader segment helpers and without_field remove case-insensitively" {
   ])
   assert_eq(h.segment_number(), Some(2))
   assert_eq(h.segment_origin_id(), Some("<urn:uuid:orig-1>"))
-  assert_eq(h.segment_total_length(), Some(128))
+  assert_eq(h.segment_total_length(), Some(128L))
   let stripped = h.without_field("warc-segment-number")
   assert_eq(stripped.segment_number(), None)
   assert_eq(stripped.segment_origin_id(), Some("<urn:uuid:orig-1>"))
@@ -126,4 +126,34 @@ test "WarcHeader segment helpers and without_field remove case-insensitively" {
   ])
   assert_eq(invalid.segment_number(), None)
   assert_eq(invalid.segment_total_length(), None)
+}
+
+///|
+test "WarcHeader rejects embedded empty lines, sanitizes CRLF serialization, and validates 14-digit CDXJ dates" {
+  assert_true(
+    @header.WarcHeader::parse(
+      b"WARC/1.1\r\nWARC-Type: warcinfo\r\n\r\nContent-Length: 0",
+    )
+    is Err(_),
+  )
+  let dirty = @header.WarcHeader::new(@header.Warc1_1, [
+    ("WARC-Type", "warcinfo\r\nWARC-Fake: injected"),
+    ("WARC-Record-ID", "<urn:uuid:crlf-safe>"),
+    ("WARC-Date", "2026-11-26T00:00:00Z"),
+    ("Content-Length", "0"),
+  ])
+  let wire = dirty.serialize()
+  assert_false(@utf8.decode_lossy(wire).contains("\nWARC-Fake:"))
+  let without_end = wire[0:wire.length() - 4]
+  match @header.WarcHeader::parse(without_end) {
+    Ok(reparsed) => assert_eq(reparsed.get("WARC-Fake"), None)
+    Err(_) => fail("expected sanitized header to re-parse safely")
+  }
+  assert_true(@header.WarcDate::parse_cdxj_timestamp("20240229120000") is Ok(_))
+  assert_true(
+    @header.WarcDate::parse_cdxj_timestamp("20250229120000") is Err(_),
+  )
+  assert_true(
+    @header.WarcDate::parse_cdxj_timestamp("20269999999999") is Err(_),
+  )
 }

@@ -71,15 +71,17 @@ test "encode_all and parse_all round-trip across all 8 WARC types" {
   match @codec.parse_all(wire) {
     Ok(parsed) => {
       assert_eq(parsed.length(), 8)
-      assert_eq(parsed[0].offset, 0)
-      let mut expected_off = 0
+      assert_eq(parsed[0].offset, 0L)
+      let mut expected_off = 0L
       for i in 0..<parsed.length() {
         assert_eq(parsed[i].offset, expected_off)
-        assert_true(parsed[i].record_length > parsed[i].payload.length())
+        assert_true(
+          parsed[i].record_length > parsed[i].payload.length().to_int64(),
+        )
         expected_off = expected_off + parsed[i].record_length
         assert_eq(parsed[i].payload, recs[i].payload)
       }
-      assert_eq(expected_off, wire.length())
+      assert_eq(expected_off, wire.length().to_int64())
       // Re-encoding with auto_digest=false produces identical bytes
       let wire2 = @codec.encode_all(parsed, auto_digest=false)
       assert_eq(wire2, wire)
@@ -179,8 +181,8 @@ test "parse_all handles empty archive and zero-byte payload records" {
     Ok(parsed) => {
       assert_eq(parsed.length(), 1)
       assert_eq(parsed[0].payload, b"")
-      assert_eq(parsed[0].offset, 0)
-      assert_eq(parsed[0].record_length, wire.length())
+      assert_eq(parsed[0].offset, 0L)
+      assert_eq(parsed[0].record_length, wire.length().to_int64())
     }
     Err(_) => fail("empty payload parse failed")
   }
@@ -220,13 +222,13 @@ test "WarcReader compacts large multi-record stream beyond 4KB without losing of
   }
   assert_eq(reader.finish(), Ok(()))
   assert_eq(got.length(), 4)
-  let mut expected_offset = 0
+  let mut expected_offset = 0L
   for r in got {
     assert_eq(r.offset, expected_offset)
     assert_eq(r.payload, big_body)
     expected_offset = expected_offset + r.record_length
   }
-  assert_eq(expected_offset, wire.length())
+  assert_eq(expected_offset, wire.length().to_int64())
 }
 
 ///|
@@ -247,8 +249,8 @@ test "parse_all and chunked WarcReader match exactly across >64KB multi-record c
         "X-Padding", "abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz",
       ),
       payload: rec.payload,
-      offset: 0,
-      record_length: 0,
+      offset: 0L,
+      record_length: 0L,
     }
     recs.push(rec)
   }
@@ -299,8 +301,8 @@ test "encode_record updates Resource WARC-Payload-Digest unless segmented" {
       @digest.format_warc_digest_sha256(b"initial-data"),
     ),
     payload: b"updated-data",
-    offset: 0,
-    record_length: 0,
+    offset: 0L,
+    record_length: 0L,
   }
   let encoded = @codec.encode_record(edited, auto_digest=true)
   let reparsed = match @codec.parse_all(encoded) {
@@ -319,8 +321,8 @@ test "encode_record updates Resource WARC-Payload-Digest unless segmented" {
     .with_field("WARC-Segment-Number", "1")
     .with_field("WARC-Payload-Digest", full_digest),
     payload: b"part-one",
-    offset: 0,
-    record_length: 0,
+    offset: 0L,
+    record_length: 0L,
   }
   let seg_encoded = @codec.encode_record(segmented, auto_digest=true)
   let seg_reparsed = match @codec.parse_all(seg_encoded) {
@@ -328,4 +330,57 @@ test "encode_record updates Resource WARC-Payload-Digest unless segmented" {
     Err(_) => fail("seg reparse failed")
   }
   assert_eq(seg_reparsed[0].header.payload_digest(), Some(full_digest))
+}
+
+///|
+test "WarcReader enforces ReaderLimits, supports Int64 offsets > 2GiB, and scan_all streams cleanly" {
+  let rec = @codec.build_resource(
+    record_id="<urn:uuid:limit-test>",
+    date="2026-11-26T00:00:00Z",
+    target_uri="https://example.org/lim",
+    content_type="text/plain",
+    b"0123456789abcdef",
+  )
+  let wire = @codec.encode_record(rec)
+  assert_true(
+    @codec.parse_all(wire, limits={
+      max_header_bytes: 32,
+      max_payload_bytes: 1024,
+    })
+    is Err(@codec.LimitExceeded(_)),
+  )
+  assert_true(
+    @codec.parse_all(wire, limits={
+      max_header_bytes: 4096,
+      max_payload_bytes: 8,
+    })
+    is Err(@codec.LimitExceeded(_)),
+  )
+  assert_true(
+    @codec.parse_all(
+      b"WARC/1.1\r\nX-Huge-Unterminated: abcdefghijklmnopqrstuvwxyz",
+      limits={ max_header_bytes: 24, max_payload_bytes: 1024, },
+    )
+    is Err(@codec.LimitExceeded(_)),
+  )
+  let big_reader = @codec.WarcReader::new()
+  big_reader.set_bytes_consumed(5000000000L)
+  big_reader.feed(wire)
+  match big_reader.next_record() {
+    Ok(Some(got)) => {
+      assert_eq(got.offset, 5000000000L)
+      assert_eq(got.record_length, wire.length().to_int64())
+      assert_eq(
+        big_reader.bytes_consumed(),
+        5000000000L + wire.length().to_int64(),
+      )
+    }
+    _ => fail("expected Int64 offset > 2GiB to decode cleanly")
+  }
+  let mut scanned = 0L
+  let res = @codec.scan_all(wire + wire, fn(r) {
+    scanned = scanned + r.record_length
+  })
+  assert_eq(res, Ok(2L))
+  assert_eq(scanned, (wire.length() * 2).to_int64())
 }

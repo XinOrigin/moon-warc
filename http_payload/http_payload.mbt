@@ -74,7 +74,7 @@ fn parse_header_lines(
   for i in 1..<lines.length() {
     let line = lines[i]
     if line.is_empty() {
-      continue
+      return Err(InvalidHeaderLine("empty line inside HTTP header block"))
     }
     if line.has_prefix(" ") || line.has_prefix("\t") {
       if out.is_empty() {

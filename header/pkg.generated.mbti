@@ -32,6 +32,7 @@ pub(all) struct WarcDate {
   raw : String
 }
 pub fn WarcDate::parse(StringView) -> Result[Self, HeaderError]
+pub fn WarcDate::parse_cdxj_timestamp(StringView) -> Result[Self, HeaderError]
 pub fn WarcDate::to_cdxj_timestamp(Self) -> String
 pub fn WarcDate::to_iso_string(Self) -> String
 
@@ -42,21 +43,21 @@ pub(all) struct WarcHeader {
 }
 pub fn WarcHeader::block_digest(Self) -> String?
 pub fn WarcHeader::concurrent_to(Self) -> Array[String]
-pub fn WarcHeader::content_length(Self) -> Int32?
+pub fn WarcHeader::content_length(Self) -> Int64?
 pub fn WarcHeader::content_type(Self) -> String?
 pub fn WarcHeader::get(Self, StringView) -> String?
 pub fn WarcHeader::get_all(Self, StringView) -> Array[String]
 pub fn WarcHeader::identified_payload_type(Self) -> String?
 pub fn WarcHeader::new(WarcVersion, Array[(String, String)]) -> Self
 pub fn WarcHeader::parse(BytesView) -> Result[Self, HeaderError]
-pub fn WarcHeader::parse_content_length(Self) -> Result[Int32, HeaderError]
+pub fn WarcHeader::parse_content_length(Self) -> Result[Int64, HeaderError]
 pub fn WarcHeader::payload_digest(Self) -> String?
 pub fn WarcHeader::profile(Self) -> String?
 pub fn WarcHeader::record_id(Self) -> String?
 pub fn WarcHeader::refers_to(Self) -> String?
 pub fn WarcHeader::segment_number(Self) -> Int32?
 pub fn WarcHeader::segment_origin_id(Self) -> String?
-pub fn WarcHeader::segment_total_length(Self) -> Int32?
+pub fn WarcHeader::segment_total_length(Self) -> Int64?
 pub fn WarcHeader::serialize(Self) -> Bytes
 pub fn WarcHeader::target_uri(Self) -> String?
 pub fn WarcHeader::truncated(Self) -> String?

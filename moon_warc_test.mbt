@@ -30,14 +30,15 @@ test "root facade sample_archive_bytes parses, validates, indexes, resolves revi
     records,
     filename="sample-crawl-2026.warc",
   )
-  assert_eq(index.entries.length(), 3)
-  assert_eq(index.entries[0].surt, "org,example)/index.html")
-  assert_eq(index.entries[0].status, Some(200))
-  assert_eq(index.entries[0].mime, Some("text/html"))
-  assert_eq(index.entries[1].surt, "org,example)/index.html")
-  assert_eq(index.entries[1].warc_type, "revisit")
-  assert_eq(index.entries[2].surt, "org,example,cdn)/app.json")
-  assert_eq(index.entries[2].warc_type, "resource")
+  let entries = index.entries()
+  assert_eq(entries.length(), 3)
+  assert_eq(entries[0].surt, "org,example)/index.html")
+  assert_eq(entries[0].status, Some(200))
+  assert_eq(entries[0].mime, Some("text/html"))
+  assert_eq(entries[1].surt, "org,example)/index.html")
+  assert_eq(entries[1].warc_type, "revisit")
+  assert_eq(entries[2].surt, "org,example,cdn)/app.json")
+  assert_eq(entries[2].warc_type, "resource")
 
   assert_eq(
     index.lookup_exact("https://example.org:443/index.html#section").length(),

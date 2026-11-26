@@ -37,15 +37,16 @@ test "cdxj indexes response and revisit records and skips warcinfo/request/metad
     Err(_) => fail("parse_all failed")
   }
   let index = @cdxj.CdxjIndex::build(parsed, filename="test.warc")
-  assert_eq(index.entries.length(), 3)
+  let entries = index.entries()
+  assert_eq(entries.length(), 3)
   // Sorted lexicographically: "org,example)/a" before "org,example,docs)/z?a=1&b=2"
-  assert_eq(index.entries[0].surt, "org,example)/a")
-  assert_eq(index.entries[0].timestamp, "20261125100001")
-  assert_eq(index.entries[0].status, Some(200))
-  assert_eq(index.entries[0].mime, Some("application/json"))
-  assert_eq(index.entries[1].surt, "org,example)/a")
-  assert_eq(index.entries[1].warc_type, "revisit")
-  assert_eq(index.entries[2].surt, "org,example,docs)/z?a=1&b=2")
+  assert_eq(entries[0].surt, "org,example)/a")
+  assert_eq(entries[0].timestamp, "20261125100001")
+  assert_eq(entries[0].status, Some(200))
+  assert_eq(entries[0].mime, Some("application/json"))
+  assert_eq(entries[1].surt, "org,example)/a")
+  assert_eq(entries[1].warc_type, "revisit")
+  assert_eq(entries[2].surt, "org,example,docs)/z?a=1&b=2")
 }
 
 ///|
@@ -57,8 +58,8 @@ test "cdxj format_line and parse_line round-trip with JSON escaping" {
     mime: Some("text/plain"),
     status: Some(200),
     digest: Some("sha256:ABC123"),
-    length: 512,
-    offset: 1024,
+    length: 512L,
+    offset: 1024L,
     filename: "crawl-\"01\".warc",
     warc_type: "response",
   }
@@ -133,20 +134,21 @@ test "cdxj format_all round-trip, numeric JSON fields, and conversion indexing" 
     Err(_) => fail("parse failed")
   }
   let idx = @cdxj.CdxjIndex::build(parsed, filename="conv.warc")
-  assert_eq(idx.entries.length(), 1)
-  assert_eq(idx.entries[0].warc_type, "conversion")
-  assert_eq(idx.entries[0].mime, Some("text/plain"))
+  let idx_entries = idx.entries()
+  assert_eq(idx_entries.length(), 1)
+  assert_eq(idx_entries[0].warc_type, "conversion")
+  assert_eq(idx_entries[0].mime, Some("text/plain"))
   let rendered = idx.format_all()
   match @cdxj.parse_line(rendered) {
-    Ok(e) => assert_eq(e, idx.entries[0])
+    Ok(e) => assert_eq(e, idx_entries[0])
     Err(_) => fail("format_all line failed parse_line")
   }
   let numeric_line = "org,example)/n 20261125101500 {\"url\":\"https://example.org/n\",\"status\":200,\"length\":64,\"offset\":128}"
   match @cdxj.parse_line(numeric_line) {
     Ok(e) => {
       assert_eq(e.status, Some(200))
-      assert_eq(e.length, 64)
-      assert_eq(e.offset, 128)
+      assert_eq(e.length, 64L)
+      assert_eq(e.offset, 128L)
       assert_eq(e.warc_type, "response")
     }
     Err(_) => fail("numeric JSON fields failed")
@@ -167,8 +169,8 @@ test "cdxj lookup_closest uses epoch seconds across midnight and month-end bound
       mime: Some("text/html"),
       status: Some(200),
       digest: None,
-      length: 100,
-      offset: 200,
+      length: 100L,
+      offset: 200L,
       filename: "b.warc",
       warc_type: "response",
     },
@@ -179,15 +181,19 @@ test "cdxj lookup_closest uses epoch seconds across midnight and month-end bound
       mime: Some("text/html"),
       status: Some(200),
       digest: None,
-      length: 100,
-      offset: 0,
+      length: 100L,
+      offset: 0L,
       filename: "b.warc",
       warc_type: "response",
     },
   ]
   let idx = @cdxj.CdxjIndex::from_entries(midnight_entries)
-  assert_eq(idx.entries[0].timestamp, "20261125235000")
-  assert_eq(idx.entries[1].timestamp, "20261126000001")
+  let m_entries = idx.entries()
+  assert_eq(m_entries[0].timestamp, "20261125235000")
+  assert_eq(m_entries[1].timestamp, "20261126000001")
+  // Mutating returned array does not corrupt internal sorted state
+  m_entries.rev_in_place()
+  assert_eq(idx.get(0).map(e => e.timestamp), Some("20261125235000"))
   match idx.lookup_closest("https://example.org/boundary", "20261125235959") {
     Some(hit) => assert_eq(hit.timestamp, "20261126000001")
     None => fail("expected cross-midnight hit")
@@ -200,8 +206,8 @@ test "cdxj lookup_closest uses epoch seconds across midnight and month-end bound
       mime: None,
       status: Some(200),
       digest: None,
-      length: 10,
-      offset: 0,
+      length: 10L,
+      offset: 0L,
       filename: "m.warc",
       warc_type: "response",
     },
@@ -212,8 +218,8 @@ test "cdxj lookup_closest uses epoch seconds across midnight and month-end bound
       mime: None,
       status: Some(200),
       digest: None,
-      length: 10,
-      offset: 50,
+      length: 10L,
+      offset: 50L,
       filename: "m.warc",
       warc_type: "response",
     },
@@ -226,7 +232,43 @@ test "cdxj lookup_closest uses epoch seconds across midnight and month-end bound
 }
 
 ///|
-test "cdxj parse_line rejects overflowing Int32 length field" {
-  let overflow_line = "org,example)/ov 20261125101500 {\"url\":\"https://example.org/ov\",\"length\":\"999999999999\",\"offset\":0}"
-  assert_true(@cdxj.parse_line(overflow_line) is Err(_))
+test "cdxj supports Int64 offsets > 2GiB, rejects negative/float JSON numbers, and round-trips whitespace URLs" {
+  let big_entry : @cdxj.CdxjEntry = {
+    surt: "org,example)/hello%20world?q=1",
+    timestamp: "20261126010000",
+    url: "https://example.org/hello world?q=1",
+    mime: Some("text/html"),
+    status: Some(200),
+    digest: Some("sha256:ABC"),
+    length: 4096L,
+    offset: 5000000000L,
+    filename: "big.warc.gz",
+    warc_type: "response",
+  }
+  let big_line = @cdxj.format_line(big_entry)
+  assert_eq(@cdxj.parse_line(big_line), Ok(big_entry))
+  assert_true(
+    @cdxj.parse_line(
+      "org,example)/x 20261126010000 {\"url\":\"https://example.org/x\",\"length\":10,\"offset\":-5}",
+    )
+    is Err(@cdxj.InvalidJsonBlock(_)),
+  )
+  assert_true(
+    @cdxj.parse_line(
+      "org,example)/x 20261126010000 {\"url\":\"https://example.org/x\",\"length\":1.5,\"offset\":0}",
+    )
+    is Err(@cdxj.InvalidJsonBlock(_)),
+  )
+  assert_true(
+    @cdxj.parse_line(
+      "org,example)/x 20261126010000 {\"url\":\"https://example.org/x\",\"status\":-1,\"length\":10,\"offset\":0}",
+    )
+    is Err(@cdxj.InvalidJsonBlock(_)),
+  )
+  assert_true(
+    @cdxj.parse_line(
+      "org,example)/ov 20261125101500 {\"url\":\"https://example.org/ov\",\"length\":\"99999999999999999999\",\"offset\":0}",
+    )
+    is Err(@cdxj.InvalidJsonBlock(_)),
+  )
 }
