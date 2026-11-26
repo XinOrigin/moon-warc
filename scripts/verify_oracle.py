@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import atexit
 import base64
+import gzip
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import zlib
 from typing import Dict, List, Optional, Tuple
 
 
@@ -382,6 +385,24 @@ def run_differential_probe() -> None:
         expected_offsets_a.append(cur)
         cur += len(p)
 
+    # Multi-member .warc.gz encoded by Python gzip (compresslevel=9 + FNAME)
+    py_gz_members: List[Tuple[int, int, bytes]] = []
+    py_gz_stream = bytearray()
+    for idx_m, part in enumerate(parts_a):
+        raw_buf = io.BytesIO()
+        with gzip.GzipFile(
+            filename=f"rec-{idx_m}.warc",
+            mode="wb",
+            fileobj=raw_buf,
+            compresslevel=9,
+            mtime=1700000000 + idx_m,
+        ) as gzf:
+            gzf.write(part)
+        m_bytes = raw_buf.getvalue()
+        py_gz_members.append((len(py_gz_stream), len(m_bytes), m_bytes))
+        py_gz_stream.extend(m_bytes)
+    py_gz_archive_a = bytes(py_gz_stream)
+
     # 2. Construct Archive B: folded multi-line headers + binary payload + SHA-1 chunked HTTP
     folded_payload = b"\x00\r\n\r\n\xfffolded-bin"
     archive_b_rec0 = (
@@ -535,6 +556,7 @@ def run_differential_probe() -> None:
             '  "xinorigin/moon_warc/header",\n'
             '  "xinorigin/moon_warc/surt",\n'
             '  "xinorigin/moon_warc/http_payload",\n'
+            '  "xinorigin/moon_warc/gzip",\n'
             '  "xinorigin/moon_warc/pipeline",\n'
             '}\n'
             'pkgtype(kind: "executable")\n',
@@ -762,6 +784,22 @@ fn main {{
   for line in @warc.export_jsonl([sample_recs[2]]).split("\\n") {{
     println("PIPE_SAMPLE_JSONL|" + line.to_owned())
   }}
+
+  let py_gz_a = {mbt_bytes_expr(py_gz_archive_a)}
+  match @warc.parse_archive_gz(py_gz_a) {{
+    Ok(gz_recs) => {{
+      let gz_rep = @warc.validate_archive(gz_recs)
+      let mut parts = gz_recs.length().to_string() + "|" + gz_rep.is_valid().to_string()
+      for r in gz_recs {{
+        parts = parts + "|" + r.offset.to_string() + ":" + r.record_length.to_string() + ":" + @digest.hex_encode(@digest.sha256(r.payload))
+      }}
+      println("GZ_PY2MBT|" + parts)
+    }}
+    Err(_) => println("GZ_PY2MBT_ERR")
+  }}
+  let mbt_gz_wire = @warc.encode_archive_gz(recs_a, auto_digest=false)
+  println("GZ_CRC|" + @gzip.crc32(py_gz_a).to_string())
+  println("GZ_MBT2PY|" + @digest.hex_encode(mbt_gz_wire))
 }}
 '''
         (probe_dir / "main.mbt").write_text(main_mbt, encoding="utf-8")
@@ -919,6 +957,21 @@ fn main {{
         sample_jsonl["text"]
         == "<!doctype html><html><body><h1>Hello WARC</h1></body></html>\n"
     )
+
+    # Bidirectional Python gzip <-> MoonBit .warc.gz verification
+    gz_py2mbt = by_prefix["GZ_PY2MBT"][0].split("|")
+    assert gz_py2mbt[1] == "6"
+    assert gz_py2mbt[2] == "true"
+    for idx_m, (exp_off, exp_len, _) in enumerate(py_gz_members):
+        got_off, got_len, got_hex = gz_py2mbt[3 + idx_m].split(":")
+        assert int(got_off) == exp_off, f"gz offset mismatch: {got_off} != {exp_off}"
+        assert int(got_len) == exp_len, f"gz length mismatch: {got_len} != {exp_len}"
+        assert got_hex == hashlib.sha256(parts_a[idx_m].split(b"\r\n\r\n", 1)[1][:-4]).hexdigest()
+
+    mbt_gz_hex = by_prefix["GZ_MBT2PY"][0].split("|", 1)[1]
+    mbt_gz_bytes = bytes.fromhex(mbt_gz_hex)
+    assert gzip.decompress(mbt_gz_bytes) == archive_a
+    assert int(by_prefix["GZ_CRC"][0].split("|", 1)[1]) == (zlib.crc32(py_gz_archive_a) & 0xFFFFFFFF)
 
 
 def main() -> int:

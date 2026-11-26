@@ -199,3 +199,35 @@ test "root facade new_reader streams sample archive incrementally" {
   }
   assert_eq(streamed, batch)
 }
+
+///|
+test "root facade scan_archive and encode_archive_gz/parse_archive_gz round-trip with compressed CDXJ" {
+  let wire = @moon_warc.sample_archive_bytes()
+  let recs = match @moon_warc.parse_archive(wire) {
+    Ok(v) => v
+    Err(_) => fail("parse_archive failed")
+  }
+  let mut scanned_count = 0L
+  assert_eq(
+    @moon_warc.scan_archive(wire, fn(r) {
+      ignore(r)
+      scanned_count = scanned_count + 1L
+    }),
+    Ok(6L),
+  )
+  assert_eq(scanned_count, 6L)
+  let gz = @moon_warc.encode_archive_gz(recs)
+  let parsed_gz = match @moon_warc.parse_archive_gz(gz) {
+    Ok(v) => v
+    Err(_) => fail("parse_archive_gz failed")
+  }
+  assert_eq(parsed_gz.length(), 6)
+  assert_true(@moon_warc.validate_archive(parsed_gz).is_valid())
+  let gz_cdx = @moon_warc.build_cdxj_index(
+    parsed_gz,
+    filename="sample-crawl-2026.warc.gz",
+  )
+  assert_eq(gz_cdx.length(), 3)
+  assert_eq(gz_cdx.get(0).map(e => e.offset), Some(parsed_gz[2].offset))
+  assert_eq(gz_cdx.get(0).map(e => e.length), Some(parsed_gz[2].record_length))
+}

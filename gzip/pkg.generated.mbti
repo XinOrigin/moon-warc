@@ -1,0 +1,51 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "xinorigin/moon_warc/gzip"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn compress(BytesView, level? : Int32) -> Bytes
+
+pub fn crc32(BytesView) -> UInt32
+
+pub fn decompress(BytesView, max_output_bytes? : Int32) -> Result[Bytes, GzipError]
+
+pub fn decompress_members(BytesView, max_member_output_bytes? : Int32) -> Result[Array[GzipMember], GzipError]
+
+pub fn deflate_raw(BytesView, level? : Int32) -> Bytes
+
+pub fn inflate_raw(BytesView, start? : Int32, max_output_bytes? : Int32) -> Result[(Bytes, Int32), GzipError]
+
+// Errors
+
+// Types and methods
+pub struct Crc32Hasher {
+  // private fields
+}
+pub fn Crc32Hasher::finalize(Self) -> UInt32
+pub fn Crc32Hasher::new() -> Self
+pub fn Crc32Hasher::update(Self, BytesView) -> Unit
+
+#derive(Eq, @debug.Debug)
+pub(all) enum GzipError {
+  InvalidHeader(String)
+  InvalidDeflateStream(String)
+  UnexpectedEof(String)
+  ChecksumMismatch(String)
+  SizeMismatch(String)
+  LimitExceeded(String)
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) struct GzipMember {
+  compressed_offset : Int64
+  compressed_length : Int64
+  uncompressed : Bytes
+  crc32 : UInt32
+}
+
+// Type aliases
+
+// Traits

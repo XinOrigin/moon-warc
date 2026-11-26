@@ -3,6 +3,7 @@ package "xinorigin/moon_warc/codec"
 
 import {
   "moonbitlang/core/debug",
+  "xinorigin/moon_warc/gzip",
   "xinorigin/moon_warc/header",
 }
 
@@ -23,11 +24,17 @@ pub fn build_warcinfo(record_id~ : String, date~ : String, Bytes, filename? : St
 
 pub fn encode_all(Array[WarcRecord], auto_digest? : Bool) -> Bytes
 
+pub fn encode_all_gz(Array[WarcRecord], auto_digest? : Bool, level? : Int32) -> Bytes
+
 pub fn encode_record(WarcRecord, auto_digest? : Bool) -> Bytes
+
+pub fn encode_record_gz(WarcRecord, auto_digest? : Bool, level? : Int32) -> Bytes
 
 pub fn make_record(@header.WarcVersion, Array[(String, String)], Bytes) -> WarcRecord
 
 pub fn parse_all(BytesView, limits? : ReaderLimits) -> Result[Array[WarcRecord], CodecError]
+
+pub fn parse_all_gz(BytesView, limits? : ReaderLimits) -> Result[Array[WarcRecord], CodecError]
 
 pub fn scan_all(BytesView, limits? : ReaderLimits, (WarcRecord) -> Unit) -> Result[Int64, CodecError]
 
@@ -41,6 +48,7 @@ pub(all) enum CodecError {
   InvalidTrailingSeparator(String)
   InvalidContentLength(String)
   LimitExceeded(String)
+  GzipError(@gzip.GzipError)
 }
 
 #derive(Eq, @debug.Debug)
