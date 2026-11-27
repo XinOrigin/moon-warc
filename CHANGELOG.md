@@ -5,6 +5,20 @@ All notable changes to `XinOrigin/moon_warc` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-27
+
+### Added
+
+- **Constant-Member-Memory Streaming `.warc.gz` & Chunked `WarcGzReader` (`gzip/`, `codec/`, `moon_warc.mbt`)**:
+  - Added `@gzip.scan_members` and `@gzip.try_decompress_member` (`MemberStep::{Parsed, NeedMoreInput, Failed}`) distinguishing truncated prefixes from corrupted RFC 1952 headers, DEFLATE streams, or CRC-32/ISIZE trailers.
+  - Added `@codec.scan_all_gz` / `@moon_warc.scan_archive_gz` and chunk-incremental Sans-IO `WarcGzReader` (`new`, `feed`, `next_record`, `finish`, `bytes_consumed`) streaming multi-record and multi-member `.warc.gz` archives at arbitrary chunk boundaries (`1B`/`7B`/`17B`/`64B`) with `O(single-member)` peak memory.
+- **Crawler HTTP Exchange Capture API (`codec/writer.mbt`, `moon_warc.mbt`)**:
+  - Added `build_http_exchange` / `record_http_exchange` and `encode_http_exchange_gz` / `record_http_exchange_gz`, generating `WARC-Concurrent-To`-linked `request` + `response` (+ optional `metadata`) `.warc.gz` archives with automatic SHA-256 block and de-chunked payload digests.
+- **Executable Doc-Test #3, CLI Showcase, External Baseline & Coverage Hardening**:
+  - Added Doc-Test #3 (`chunked WarcGzReader streaming and HTTP crawler exchange capture`) in [`README.mbt.md`](README.mbt.md) and extended [`cmd/main/main.mbt`](cmd/main/main.mbt) & [`scripts/verify_oracle.py`](scripts/verify_oracle.py) to differentially test `scan_archive_gz`, 7B-chunked `WarcGzReader`, and `record_http_exchange_gz` against Python `gzip -9`.
+  - Extended [`scripts/run_benchmarks.py`](scripts/run_benchmarks.py) and [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) with a same-machine external CPython (`zlib` + `hashlib` C extensions) baseline (`112.39 MiB/s` pure MoonBit `native` vs `196.11 MiB/s` CPython C-ext) and honest Fixed-vs-Dynamic Huffman compression comparison.
+  - Expanded test coverage to **194/194 passing** across `wasm`, `wasm-gc`, `js`, and `native`, reducing uncovered core library lines from 267 to **229** via `moon coverage analyze`.
+
 ## [0.3.1] - 2026-11-26
 
 ### Performance

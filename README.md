@@ -1,7 +1,7 @@
 # moon-warc
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Version: v0.3.1](https://img.shields.io/badge/Version-v0.3.1-green.svg)](CHANGELOG.md)
+[![Version: v0.4.0](https://img.shields.io/badge/Version-v0.4.0-green.svg)](CHANGELOG.md)
 [![Targets: wasm | wasm-gc | js | native](https://img.shields.io/badge/Targets-wasm%20%7C%20wasm--gc%20%7C%20js%20%7C%20native-purple.svg)](#多目标验证矩阵与基准测试--verification--benchmarks)
 [![Live Offline Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-orange.svg)](https://xinorigin.github.io/moon-warc/)
 
@@ -38,7 +38,6 @@ import {
 ### 1. 端到端归档解析、ISO 28500 合规验证、CDXJ 检索与 JSONL 导出
 
 ```moonbit
-///|
 test "readme: parse, validate, index CDXJ, lookup_closest, and export" {
   let wire = @moon_warc.sample_archive_bytes()
   let records = @moon_warc.parse_archive(wire).unwrap()
@@ -70,7 +69,6 @@ test "readme: parse, validate, index CDXJ, lookup_closest, and export" {
 ### 2. 多成员 RFC 1952 `.warc.gz` 编解码与压缩成员精确偏移索引
 
 ```moonbit
-///|
 test "readme: multi-member .warc.gz round-trip and compressed byte-range CDXJ" {
   let records = @moon_warc.parse_archive(@moon_warc.sample_archive_bytes()).unwrap()
   let gz_wire = @moon_warc.encode_archive_gz(records)
@@ -91,12 +89,56 @@ test "readme: multi-member .warc.gz round-trip and compressed byte-range CDXJ" {
 }
 ```
 
+### 3. 恒定成员内存流式 `.warc.gz` 分片解析与爬虫 HTTP 会话直录
+
+```moonbit
+test "readme: chunked WarcGzReader streaming and HTTP crawler exchange capture" {
+  let gz_wire = @moon_warc.record_http_exchange_gz(
+    request_id="<urn:uuid:doc-req-1>",
+    response_id="<urn:uuid:doc-resp-1>",
+    date="2026-11-27T12:00:00Z",
+    target_uri="https://crawl.example.org/post",
+    request_bytes=b"GET /post HTTP/1.1\r\nHost: crawl.example.org\r\n\r\n",
+    response_bytes=b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>Captured</h1>",
+  )
+  let mut scanned = 0L
+  assert_eq(
+    @moon_warc.scan_archive_gz(gz_wire, fn(_r) { scanned = scanned + 1L }),
+    Ok(2L),
+  )
+  assert_eq(scanned, 2L)
+
+  let reader = @moon_warc.new_gz_reader()
+  let out = []
+  let mut pos = 0
+  while pos < gz_wire.length() {
+    let end = if pos + 13 > gz_wire.length() {
+      gz_wire.length()
+    } else {
+      pos + 13
+    }
+    reader.feed(gz_wire[pos:end])
+    while true {
+      match reader.next_record() {
+        Ok(Some(r)) => out.push(r)
+        Ok(None) => break
+        Err(_) => fail("WarcGzReader failed")
+      }
+    }
+    pos = end
+  }
+  assert_eq(reader.finish(), Ok(()))
+  assert_eq(out.length(), 2)
+  assert_true(@moon_warc.validate_archive(out).is_valid())
+}
+```
+
 ---
 
 ## 核心特性 / Key Features
 
-- **Sans-IO 流式解析、`Int64` 偏移与资源护栏 (`codec`)**：基于状态机（`WarcReader`）的增量解码器，支持任意分片大小喂入、均摊缓冲压缩（`cursor >= 4096 && cursor >= remaining`）、头扫描水位与可配置 `ReaderLimits`（默认最大头部 `64 KiB` / 最大单记录载荷 `64 MiB`，防御畸形流内存膨胀）；全面使用 **`Int64` 流偏移与 `Content-Length`（突破 2 GiB 上限）**，并提供零全量数组驻留的 `scan_all` / `scan_archive` 流式扫描接口与 CRLF 头注入防护。
-- **纯 MoonBit 多成员 `.warc.gz` 压缩与解压 (`gzip`)**：零外部依赖实现完整 RFC 1951 DEFLATE 解压（Stored `BTYPE=0`、Fixed Huffman `BTYPE=1`、Dynamic Huffman `BTYPE=2`）、LZ77 + Fixed Huffman 压缩、IEEE 802.3 CRC-32 与 RFC 1952 多成员容器（支持 `FEXTRA`、`FNAME`、`FCOMMENT`、`FHCRC`、`max_output_bytes` 压缩炸弹防护）；`encode_archive_gz` 与 `parse_archive_gz` 按 Common Crawl 惯例每条记录独立封装一个 Gzip 成员并精确记录压缩成员 `(offset, record_length)` 供 HTTP `Range` 随机读取。
+- **Sans-IO 流式解析、`Int64` 偏移与资源护栏 (`codec`)**：提供平文件状态机 `WarcReader` 与压缩分片状态机 **`WarcGzReader`**（`new_gz_reader`，按 Gzip 成员粒度流式释放内存，支持任意分片大小喂入与 `finish()` 截断审计）；全面采用 **`Int64` 流偏移与 `Content-Length`（突破 2 GiB 上限）**、`ReaderLimits` 资源限制、零全量数组驻留的 `scan_archive` / `scan_archive_gz`、CRLF 头注入防护，以及面向爬虫集成的 `record_http_exchange` / `record_http_exchange_gz`。
+- **纯 MoonBit 多成员 `.warc.gz` 压缩与解压 (`gzip`)**：零外部依赖实现完整 RFC 1951 DEFLATE 解压（Stored `BTYPE=0`、Fixed Huffman `BTYPE=1`、Dynamic Huffman `BTYPE=2`）、LZ77 + Fixed Huffman 压缩、IEEE 802.3 CRC-32 与 RFC 1952 多成员流式容器（支持 `FEXTRA`、`FNAME`、`FCOMMENT`、`FHCRC`、`scan_members`、`try_decompress_member` 与 `max_output_bytes` 压缩炸弹防护）；精确记录压缩成员 `(offset, record_length)` 供 HTTP `Range` 随机读取。
 - **纯 MoonBit 密码学摘要与编码 (`digest`)**：内置完整增量式 FIPS 180-4 / RFC 3174 `Sha1Hasher`、`Sha256Hasher` 与 RFC 4648 `Base32` / `Hex` 编解码，支持 `WARC-Block-Digest` 与 `WARC-Payload-Digest` 格式化、解析与验真。
 - **HTTP/1.x 负载拆解与 Chunked 解码 (`http_payload`)**：对内嵌于 `request` / `response` 记录中的 HTTP 报文进行二进制安全的头体分离（支持 obs-fold 折叠头、多行 `Transfer-Encoding` 与 `\x00` / 非 UTF-8 正文），完整实现 RFC 9112 `Transfer-Encoding: chunked` 解码，确保 `WARC-Payload-Digest` 针对真实实体体校验。
 - **SURT 规范化与 CDXJ 二分索引 (`surt`, `cdxj`)**：实现 URI 域名标签反转、默认端口剥离、`.` / `..` 路径段消解、空白/控制字符百分号转义（保障 CDXJ 往返安全）、查询参数字典序排列（`IPv4` / `[IPv6]`），并采用私有封装的 `CdxjIndex` 与 `String::lexical_compare` 二分检索（`lookup_exact`、`lookup_prefix`、`lookup_closest` 按公历秒差匹配）。
@@ -109,7 +151,7 @@ test "readme: multi-member .warc.gz round-trip and compressed byte-range CDXJ" {
 
 ## 作用域与非目标 / Scope & Non-Goals
 
-### 在范围内 (In Scope `v0.3.1`)
+### 在范围内 (In Scope `v0.4.0`)
 - ISO 28500:2009 (`WARC/1.0`) 与 ISO 28500:2017 (`WARC/1.1`) 全类型记录帧解析、编码、合规校验与 §9 分片重组。
 - 纯 MoonBit RFC 1951 DEFLATE / RFC 1952 **多成员 `.warc.gz`** 流式压缩、解压、CRC-32/ISIZE 校验与压缩字节范围索引。
 - 纯 MoonBit SHA-1 / SHA-256、Base32 / Hex、HTTP/1.x Chunked 实体提取、SURT、CDXJ、11 列 CDX、`revisit` 溯源与 RFC 8259 JSONL 导出。
@@ -124,13 +166,13 @@ test "readme: multi-member .warc.gz round-trip and compressed byte-range CDXJ" {
 
 | 包名 (Package) | 路径 | 核心职责与公开接口 |
 | --- | --- | --- |
-| `XinOrigin/moon_warc` | [`moon_warc.mbt`](moon_warc.mbt) | 根门面 API：`library_version`、`new_reader`、`parse_archive`、`scan_archive`、`encode_archive`、`encode_record_gz`、`encode_archive_gz`、`parse_archive_gz`、`build_cdxj_index`、`validate_archive`、`resolve_revisits`、`segment_record`、`reassemble_segments`、`filter_records`、`extract_subset`、`export_cdx11`、`export_jsonl`、`sample_archive_bytes` |
-| `XinOrigin/moon_warc/gzip` | [`gzip/`](gzip/) | 纯 MoonBit RFC 1951 DEFLATE (`inflate_raw` / `deflate_raw`)、IEEE 802.3 `Crc32Hasher` / `crc32`、RFC 1952 多成员 `compress` / `decompress` / `decompress_members` |
+| `XinOrigin/moon_warc` | [`moon_warc.mbt`](moon_warc.mbt) | 根门面 API：`library_version`、`new_reader`、`new_gz_reader`、`parse_archive`、`scan_archive`、`scan_archive_gz`、`encode_archive`、`encode_record_gz`、`encode_archive_gz`、`parse_archive_gz`、`record_http_exchange`、`record_http_exchange_gz`、`build_cdxj_index`、`validate_archive`、`resolve_revisits`、`segment_record`、`reassemble_segments`、`filter_records`、`extract_subset`、`export_cdx11`、`export_jsonl`、`sample_archive_bytes` |
+| `XinOrigin/moon_warc/gzip` | [`gzip/`](gzip/) | 纯 MoonBit RFC 1951 DEFLATE (`inflate_raw` / `deflate_raw`)、IEEE 802.3 `Crc32Hasher` / `crc32`、RFC 1952 多成员 `compress` / `decompress` / `decompress_members` / `scan_members` / `try_decompress_member` |
 | `XinOrigin/moon_warc/digest` | [`digest/`](digest/) | `sha1`、`sha256`、`Sha1Hasher`、`Sha256Hasher`、`base32_encode/decode`、`hex_encode/decode`、`format/parse/verify_warc_digest` |
 | `XinOrigin/moon_warc/surt` | [`surt/`](surt/) | `parse_uri`、`to_surt`、`ParsedUri`、`SurtError` |
 | `XinOrigin/moon_warc/http_payload` | [`http_payload/`](http_payload/) | `parse_http_request`、`parse_http_response`、`decode_chunked`、`extract_entity_body`、`header_value` |
 | `XinOrigin/moon_warc/header` | [`header/`](header/) | `WarcVersion`、`WarcType`、`WarcDate`（`parse`、`parse_cdxj_timestamp`）、`WarcHeader`（CRLF 安全序列化、`Int64` `content_length`） |
-| `XinOrigin/moon_warc/codec` | [`codec/`](codec/) | `ReaderLimits`、`WarcReader`、`scan_all`、`parse_all`、`parse_all_gz`、`encode_record/all/_gz`、`build_*` |
+| `XinOrigin/moon_warc/codec` | [`codec/`](codec/) | `ReaderLimits`、`WarcReader`、`WarcGzReader`、`scan_all`、`scan_all_gz`、`parse_all`、`parse_all_gz`、`encode_record/all/_gz`、`build_http_exchange`、`encode_http_exchange_gz` |
 | `XinOrigin/moon_warc/cdxj` | [`cdxj/`](cdxj/) | `CdxjEntry`、`CdxjIndex`（私有排序切片 + `Int64` 偏移、只读访问器与 `lookup_*`） |
 | `XinOrigin/moon_warc/validate` | [`validate/`](validate/) | `validate_archive`、`ValidationReport`、`Diagnostic`（22 诊断码）、`resolve_revisits` |
 | `XinOrigin/moon_warc/pipeline` | [`pipeline/`](pipeline/) | §9 `segment_record` / `reassemble_segments`、`ArchiveFilter` / `extract_subset`、`export_cdx11`、`export_jsonl` |
@@ -163,16 +205,17 @@ moon test --target native
 
 ## 多目标验证矩阵与基准测试 / Verification & Benchmarks
 
-本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台上验证，共 **189 项**测试（187 个模块单元测试/Fuzz/负例 + **2 个 `README.mbt.md` 可执行文档测试**），覆盖全部 11 个包 / 35 个 `.mbt` 源文件：
+本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台上验证，共 **194 项**测试（191 个模块单元测试/Fuzz/负例 + **3 个 `README.mbt.md` 可执行文档测试**），覆盖全部 11 个包 / 35 个 `.mbt` 源文件（`moon coverage` 实测核心库未覆盖行数从 267 降至 229 行）：
 
-| 编译目标 / 门禁 | 实测结果 | 端到端稳态流水线吞吐 (`--release`, Apple M4, 69.28 MiB 工作负载) |
+| 编译目标 / 外部基线 / 门禁 | 实测结果 | 端到端稳态流水线吞吐 (`--release`, Apple M4, 92.37 MiB 工作负载) |
 | --- | --- | --- |
-| **`native`** | **189 / 189 passed** | **`87.53 MiB/s`** (`steady 0.791 s`, `wall 1.035 s`) |
-| **`wasm-gc`** | **189 / 189 passed** | **`66.19 MiB/s`** (`steady 1.047 s`, `wall 1.083 s`) |
-| **`js`** | **189 / 189 passed** | **`65.65 MiB/s`** (`steady 1.055 s`, `wall 1.133 s`) |
-| **`wasm`** | **189 / 189 passed** | **`54.30 MiB/s`** (`steady 1.276 s`, `wall 1.319 s`) |
-| **CLI 演示** (`cmd/main`) | `native` / `js` 逐字节一致 | 含 `.warc.gz` 多成员编码解析与压缩 CDXJ |
-| **Python 差分预言机** | **通过（exit 0）** | 对照 `hashlib`、`base64`、`zlib.crc32`、`gzip`（`compresslevel=9` 动态哈夫曼 + `FNAME`）、`json` |
+| **`native`** (纯 MoonBit) | **194 / 194 passed** | **`112.39 MiB/s`** (`steady 0.822 s`, `wall 0.864 s` · 达 C `zlib`+`hashlib` 速率 57.3%) |
+| **`js`** (纯 MoonBit) | **194 / 194 passed** | **`63.68 MiB/s`** (`steady 1.450 s`, `wall 1.532 s`) |
+| **`wasm-gc`** (纯 MoonBit) | **194 / 194 passed** | **`52.03 MiB/s`** (`steady 1.775 s`, `wall 1.815 s`) |
+| **`wasm`** (纯 MoonBit) | **194 / 194 passed** | **`47.78 MiB/s`** (`steady 1.933 s`, `wall 1.978 s`) |
+| *外部基线*: CPython (`zlib` + `hashlib` C 扩展) | 同机同语料基线 | `196.11 MiB/s` (`0.471 s`, 无浏览器/Wasm 沙箱支持) |
+| **CLI 演示** (`cmd/main`) | `native` / `js` 逐字节一致 | 含 `.warc.gz` 多成员、分片 `WarcGzReader` 与爬虫 HTTP 会话捕获 |
+| **Python 差分预言机** | **通过（exit 0）** | 对照 `hashlib`、`base64`、`zlib.crc32`、`gzip -9` 动态哈夫曼、`scan_archive_gz`、7B 分片 `WarcGzReader` 与 `json` |
 | **包洁净度** (`moon package --list`) | **零泄漏** | 通过 [`.moonignore`](.moonignore) 排除 `scripts/`、`docs/`、`PROJECT_PROPOSAL.md`、`AI_USAGE.md` 等非包文件 |
 
 > 详细基准测试方法与各指标数据请见：[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。

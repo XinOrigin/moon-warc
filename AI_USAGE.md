@@ -13,23 +13,26 @@
 
 ---
 
-## 2. 审查方式与确定性工程门禁 (Verification & Quality Gates)
+## 2. 审查方式、确定性工程门禁与 Harness 实际拦错记录 (Verification & Defects Caught)
 
-本项目 `v0.1.0`–`v0.2.0` 初始版本于 2026-11-25 在高密度 AI 辅助开发下完成，后续 `v0.2.1`–`v0.3.1` 经过完整的**交叉审计与缺陷清零**、`Int64` 位宽升级、多成员 `.warc.gz` 扩展以及 9-bit 哈夫曼快速查表 / 零拷贝 `BytesView` 扫描优化与四端基准验证：
+本项目 `v0.1.0`–`v0.2.0` 初始版本于 2026-11-25 在高密度 AI 辅助开发下完成，后续 `v0.2.1`–`v0.4.0` 经过完整的**多轮交叉审计与缺陷清零**、`Int64` 位宽升级、多成员 `.warc.gz` 流式扩展、9-bit 哈夫曼快速查表优化、`moon coverage` 覆盖率加固及外部基线对拍：
 
-1. **规范对照与交叉审计**：
-   - 对照 **ISO 28500:2017**、**RFC 1951/1952**、**RFC 9112**、**RFC 4648** 与 **FIPS 180-4** 逐行核对并修复了交叉审计发现的 7 项隐患：将 `CdxjIndex.entries` 收紧为 `priv` 只读封装、为 `WarcReader` 补充 `ReaderLimits` 体积护栏、升级偏移量与 `Content-Length` 至 `Int64`、防护 `WarcHeader::serialize` 中的 `\r`/`\n` 注入、对 `to_surt` 空白与控制字符做百分号转义、补齐 §9 `continuation` 原点与仅末段 `Total-Length` 检查，以及统一 `WarcDate::parse_cdxj_timestamp` 日历校验。
-   - 核查并锁定 MoonBit 语言语义细节：在 [`surt/surt.mbt`](surt/surt.mbt)、[`cdxj/cdxj.mbt`](cdxj/cdxj.mbt) 与 [`pipeline/filter.mbt`](pipeline/filter.mbt) 中显式使用 `String::lexical_compare`；在 [`gzip/`](gzip/) 中全部使用 `UInt32` / `Int64` 实现跨四端位精确 DEFLATE/CRC-32。
+1. **Harness 实际发现并阻止的真实缺陷（具体案例）**：
+   - **`String::compare` shortlex 排序语义陷阱**：单测 `surt_test.mbt` 早期暴露 MoonBit `String::compare` 按“先长度后字典序”比较，导致查询串 `"k=v"` 排在 `"flag"` 之前、长 URL 无法正确接入 CDXJ 二分边界。发现后在 [`surt/surt.mbt`](surt/surt.mbt)、[`cdxj/cdxj.mbt`](cdxj/cdxj.mbt) 与 [`pipeline/filter.mbt`](pipeline/filter.mbt) 全部切换为显式 `String::lexical_compare`，并用 Python `sorted()` 在 [`scripts/verify_oracle.py`](scripts/verify_oracle.py) 逐条锁死。
+   - **ISO 28500 §9 Origin 记录被 `auto_digest` 覆写摘要**：分片测试发现第 1 段 Origin 的 `payload` 仅含截断前缀，若按未分片 HTTP 响应重新计算 `WARC-Payload-Digest` 会覆盖整包逻辑摘要，导致 `reassemble_segments` 校验失败；随后在 [`codec/writer.mbt`](codec/writer.mbt) 对 `WARC-Segment-Number` 记录保留逻辑实体摘要，由全包重组后再验真。
+   - **`Int32` 流偏移溢出与畸形流无界缓存**：审计定位原 `Int32` 无法表达 >2 GiB WARC 归档偏移且 `WarcReader` 缺头/体上限；重构升级为 `Int64` + `ReaderLimits`，并在 `gzip/` 全部长度加法中引入减法防溢出边界检查。
+   - **`CdxjIndex` 同成员多记录排序不确定 & Gzip 动态表前向兼容**：固定同成员多记录次级排序键（`offset -> warc_type -> url -> digest`），并修复 CRLF 头注入、`\t` 控制字符转义及 `WarcGzReader` 截断前缀与真损坏区分（`NeedMoreInput` vs `Failed`）。
 
-2. **编译器静态契约、文档测试与零告警门禁**：
+2. **编译器静态契约、文档测试、覆盖率与零告警门禁**：
    - 运行 `moon check --deny-warn` 确保全部 11 个包（`35` 份 `.mbt` 源码）零编译错误、零静态警告。
-   - 运行 `moon fmt --check` 与 `moon info`，通过各包的 `pkg.generated.mbti` 追踪公共签名，并在 [`README.mbt.md`](README.mbt.md) 中提供由 `moon test` 直接编译运行的 `` ```moonbit check `` 文档测试。
+   - 运行 `moon fmt --check` 与 `moon info`，通过各包的 `pkg.generated.mbti` 追踪公共签名，并在 [`README.mbt.md`](README.mbt.md) 中提供由 `moon test` 直接编译运行的 **3 个 `` ```moonbit check `` 文档测试**。
+   - 运行 `moon test --target native --enable-coverage && moon coverage analyze` 持续巡检未覆盖分支，核心 10 包未覆盖行数在 `v0.4.0` 新增流式 `WarcGzReader` / `scan_archive_gz` / 爬虫捕获接口的同时，仍由 `v0.3.1` 的 `267` 行进一步下降至 **`229` 行**。
 
-3. **四目标矩阵一致性测试与基准测量**：
-   - 全套 **189 项**测试（187 项模块单测/Fuzz/负例 + 2 项 `README.mbt.md` 文档测试）在 `wasm`、`wasm-gc`、`js` 与 `native` 四个后端均实测 **189 / 189 通过（0 失败）**，并已通过 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) 实测四端 69.28 MiB 流水线吞吐（稳态 `54.30–87.53 MiB/s`）。
+3. **四目标矩阵一致性测试与外部基准测量**：
+   - 全套 **194 项**测试（191 项模块单测/Fuzz/负例 + 3 项 `README.mbt.md` 文档测试）在 `wasm`、`wasm-gc`、`js` 与 `native` 四个后端均实测 **194 / 194 通过（0 失败）**，并按 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) 在 92.37 MiB 混合流水线上实测稳态吞吐：**`native 112.39 MiB/s`**（达同机 CPython `zlib`+`hashlib` C 扩展 `196.11 MiB/s` 的 **57.3%**）、**`js 63.68 MiB/s`**、**`wasm-gc 52.03 MiB/s`**、**`wasm 47.78 MiB/s`**。
 
 4. **Python 差分验证交叉校验**：
-   - 通过 [`scripts/verify_oracle.py`](scripts/verify_oracle.py) 在 `native` 探针下调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip`、`json`）核对 SHA-1/SHA-256 Base32、双向 multi-member `.warc.gz`（含 `gzip compresslevel=9` 动态哈夫曼与 `FNAME`）压缩偏移及 RFC 8259 JSONL 解析，并核验 CLI `native`/`js` 输出一致。
+   - 通过 [`scripts/verify_oracle.py`](scripts/verify_oracle.py) 在 `native` 探针下调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip`、`json`）核对 SHA-1/SHA-256 Base32、双向 multi-member `.warc.gz`（含 `gzip -9` 动态哈夫曼与 `FNAME`）、流式 `scan_archive_gz`、7 字节分片 `WarcGzReader`、爬虫 HTTP 会话捕获及 RFC 8259 JSONL 解析，并核验 CLI `native`/`js` 输出逐字节一致。
 
 ---
 

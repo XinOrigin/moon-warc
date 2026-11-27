@@ -99,4 +99,16 @@ test "to_surt percent-encodes whitespace and control characters for CDXJ round-t
     @surt.to_surt("https://example.org/hello world?q=a b&a=1"),
     Ok("org,example)/hello%20world?a=1&q=a%20b"),
   )
+  assert_eq(
+    @surt.to_surt("https://example.org/a\tb?x=1&x=2"),
+    Ok("org,example)/a%09b?x=1&x=2"),
+  )
+  assert_true(
+    @surt.parse_uri("example.org/no-scheme") is Err(@surt.MissingScheme),
+  )
+  assert_true(@surt.parse_uri("https://") is Err(@surt.MissingHost))
+  assert_true(
+    @surt.parse_uri("https://example.org:") is Err(@surt.InvalidPort(_)),
+  )
+  assert_true(@surt.parse_uri("https://[2001:db8::1]:8443/v6") is Ok(_))
 }

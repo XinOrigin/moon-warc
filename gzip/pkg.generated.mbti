@@ -18,6 +18,10 @@ pub fn deflate_raw(BytesView, level? : Int32) -> Bytes
 
 pub fn inflate_raw(BytesView, start? : Int32, max_output_bytes? : Int32) -> Result[(Bytes, Int32), GzipError]
 
+pub fn scan_members(BytesView, max_member_output_bytes? : Int32, (GzipMember) -> Unit) -> Result[Int64, GzipError]
+
+pub fn try_decompress_member(BytesView, base_offset? : Int64, max_member_output_bytes? : Int32) -> MemberStep
+
 // Errors
 
 // Types and methods
@@ -44,6 +48,13 @@ pub(all) struct GzipMember {
   compressed_length : Int64
   uncompressed : Bytes
   crc32 : UInt32
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum MemberStep {
+  Parsed(GzipMember, Int32)
+  NeedMoreInput
+  Failed(GzipError)
 }
 
 // Type aliases

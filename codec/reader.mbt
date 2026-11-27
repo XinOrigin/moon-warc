@@ -551,15 +551,8 @@ pub fn parse_all(
 }
 
 ///|
-/// Parses a single- or multi-member RFC 1952 `.warc.gz` byte stream into `WarcRecord`s.
-/// Sets each record's `offset` and `record_length` to its enclosing gzip member's compressed
-/// byte offset and compressed length so `CDXJ` / `CDX-11` indexes support HTTP range fetches.
-pub fn parse_all_gz(
-  raw : BytesView,
-  limits~ : ReaderLimits = ReaderLimits::default(),
-) -> Result[Array[WarcRecord], CodecError] {
-  let max_member_out = if limits.max_header_bytes >= 0 &&
-    limits.max_payload_bytes >= 0 {
+fn max_member_output_for_limits(limits : ReaderLimits) -> Int32 {
+  if limits.max_header_bytes >= 0 && limits.max_payload_bytes >= 0 {
     let sum = limits.max_header_bytes.to_int64() +
       limits.max_payload_bytes.to_int64() +
       1024L
@@ -571,25 +564,234 @@ pub fn parse_all_gz(
   } else {
     67108864
   }
-  let members = match
-    @gzip.decompress_members(raw, max_member_output_bytes=max_member_out) {
-    Ok(ms) => ms
-    Err(e) => return Err(GzipError(e))
+}
+
+///|
+/// Scans a single- or multi-member RFC 1952 `.warc.gz` byte stream record-by-record without
+/// retaining prior decompressed members or all decoded records in RAM, returning record count.
+pub fn scan_all_gz(
+  raw : BytesView,
+  limits~ : ReaderLimits = ReaderLimits::default(),
+  on_record : (WarcRecord) -> Unit,
+) -> Result[Int64, CodecError] {
+  let max_member_out = max_member_output_for_limits(limits)
+  let total_len = raw.length()
+  let mut pos = 0
+  let mut count = 0L
+  while pos < total_len {
+    match
+      @gzip.try_decompress_member(
+        raw[pos:total_len],
+        base_offset=pos.to_int64(),
+        max_member_output_bytes=max_member_out,
+      ) {
+      Parsed(m, rel_next) => {
+        match
+          scan_all(m.uncompressed, limits~, fn(rec) {
+            on_record({
+              header: rec.header,
+              payload: rec.payload,
+              offset: m.compressed_offset,
+              record_length: m.compressed_length,
+            })
+            count = count + 1L
+          }) {
+          Ok(_) => ()
+          Err(e) => return Err(e)
+        }
+        pos = pos + rel_next
+      }
+      NeedMoreInput =>
+        return Err(
+          GzipError(
+            @gzip.UnexpectedEof(
+              "truncated RFC 1952 Gzip member at compressed offset \{pos.to_string()}",
+            ),
+          ),
+        )
+      Failed(e) => return Err(GzipError(e))
+    }
   }
+  Ok(count)
+}
+
+///|
+/// Parses a single- or multi-member RFC 1952 `.warc.gz` byte stream into `WarcRecord`s.
+/// Sets each record's `offset` and `record_length` to its enclosing gzip member's compressed
+/// byte offset and compressed length so `CDXJ` / `CDX-11` indexes support HTTP range fetches.
+pub fn parse_all_gz(
+  raw : BytesView,
+  limits~ : ReaderLimits = ReaderLimits::default(),
+) -> Result[Array[WarcRecord], CodecError] {
   let out : Array[WarcRecord] = []
-  for m in members {
-    let recs = match parse_all(m.uncompressed, limits~) {
-      Ok(rs) => rs
-      Err(e) => return Err(e)
+  match scan_all_gz(raw, limits~, fn(rec) { out.push(rec) }) {
+    Ok(_) => Ok(out)
+    Err(e) => Err(e)
+  }
+}
+
+///|
+/// Chunk-incremental Sans-IO streaming reader for single- and multi-member RFC 1952 `.warc.gz` archives.
+/// Buffers only the currently incomplete compressed Gzip member across `feed()` calls and frees
+/// compressed & uncompressed member buffers immediately after each member completes.
+pub struct WarcGzReader {
+  priv mut buf : FixedArray[Byte]
+  priv mut buf_len : Int32
+  priv mut compressed_consumed : Int64
+  priv limits : ReaderLimits
+  priv mut pending : Array[WarcRecord]
+  priv mut pending_idx : Int32
+  priv mut last_need_more_len : Int32
+}
+
+///|
+/// Creates a fresh incremental `.warc.gz` streaming reader.
+pub fn WarcGzReader::new(
+  limits~ : ReaderLimits = ReaderLimits::default(),
+) -> WarcGzReader {
+  {
+    buf: FixedArray::make(0, b'\x00'),
+    buf_len: 0,
+    compressed_consumed: 0L,
+    limits,
+    pending: [],
+    pending_idx: 0,
+    last_need_more_len: -1,
+  }
+}
+
+///|
+/// Returns the cumulative number of compressed `.warc.gz` stream bytes consumed from completed members.
+pub fn WarcGzReader::bytes_consumed(self : WarcGzReader) -> Int64 {
+  self.compressed_consumed
+}
+
+///|
+/// Appends a compressed `.warc.gz` chunk into the streaming reader buffer.
+pub fn WarcGzReader::feed(self : WarcGzReader, chunk : BytesView) -> Unit {
+  let n = chunk.length()
+  if n == 0 {
+    return
+  }
+  if n > 2147483647 - self.buf_len {
+    abort("WarcGzReader buffer overflow")
+  }
+  let needed = self.buf_len + n
+  if needed > self.buf.length() {
+    let doubled = if self.buf.length() > 1073741823 {
+      2147483647
+    } else {
+      self.buf.length() * 2
     }
-    for rec in recs {
-      out.push({
-        header: rec.header,
-        payload: rec.payload,
-        offset: m.compressed_offset,
-        record_length: m.compressed_length,
-      })
+    let cap0 = if doubled < 256 { 256 } else { doubled }
+    let new_cap = if cap0 < needed { needed } else { cap0 }
+    let next = FixedArray::make(new_cap, b'\x00')
+    for i in 0..<self.buf_len {
+      next[i] = self.buf[i]
+    }
+    self.buf = next
+  }
+  let base = self.buf_len
+  for i in 0..<n {
+    self.buf[base + i] = chunk[i]
+  }
+  self.buf_len = needed
+  self.last_need_more_len = -1
+}
+
+///|
+fn WarcGzReader::shift_left(self : WarcGzReader, n : Int32) -> Unit {
+  let rem = self.buf_len - n
+  for i in 0..<rem {
+    self.buf[i] = self.buf[n + i]
+  }
+  self.buf_len = rem
+  self.last_need_more_len = -1
+}
+
+///|
+/// Advances the `.warc.gz` streaming parser and yields the next complete `WarcRecord`, if available.
+pub fn WarcGzReader::next_record(
+  self : WarcGzReader,
+) -> Result[WarcRecord?, CodecError] {
+  while true {
+    if self.pending_idx < self.pending.length() {
+      let rec = self.pending[self.pending_idx]
+      self.pending_idx = self.pending_idx + 1
+      if self.pending_idx >= self.pending.length() {
+        self.pending = []
+        self.pending_idx = 0
+      }
+      return Ok(Some(rec))
+    }
+    if self.buf_len == 0 || self.buf_len == self.last_need_more_len {
+      return Ok(None)
+    }
+    let view = self.buf.unsafe_reinterpret_as_bytes()[0:self.buf_len]
+    let max_member_out = max_member_output_for_limits(self.limits)
+    match
+      @gzip.try_decompress_member(
+        view,
+        base_offset=self.compressed_consumed,
+        max_member_output_bytes=max_member_out,
+      ) {
+      NeedMoreInput => {
+        self.last_need_more_len = self.buf_len
+        return Ok(None)
+      }
+      Failed(e) => return Err(GzipError(e))
+      Parsed(m, consumed_i32) => {
+        let next_consumed = match
+          checked_add_i64(self.compressed_consumed, m.compressed_length) {
+          Some(v) => v
+          None =>
+            return Err(
+              InvalidContentLength(
+                "WARC compressed stream byte offset exceeds Int64 range",
+              ),
+            )
+        }
+        self.compressed_consumed = next_consumed
+        self.shift_left(consumed_i32)
+        let recs : Array[WarcRecord] = []
+        match
+          scan_all(m.uncompressed, limits=self.limits, fn(rec) {
+            recs.push({
+              header: rec.header,
+              payload: rec.payload,
+              offset: m.compressed_offset,
+              record_length: m.compressed_length,
+            })
+          }) {
+          Ok(_) => ()
+          Err(e) => return Err(e)
+        }
+        if !recs.is_empty() {
+          self.pending = recs
+          self.pending_idx = 0
+        }
+      }
     }
   }
-  Ok(out)
+  Ok(None)
+}
+
+///|
+/// Checks that no unconsumed or truncated trailing Gzip member bytes remain at EOF.
+pub fn WarcGzReader::finish(self : WarcGzReader) -> Result[Unit, CodecError] {
+  if self.pending_idx < self.pending.length() {
+    return Err(
+      UnexpectedEof("unconsumed buffered records remaining at end of .warc.gz"),
+    )
+  }
+  if self.buf_len > 0 {
+    return Err(
+      GzipError(
+        @gzip.UnexpectedEof(
+          "truncated trailing RFC 1952 Gzip member (\{self.buf_len.to_string()} bytes) at offset \{self.compressed_consumed.to_string()}",
+        ),
+      ),
+    )
+  }
+  Ok(())
 }

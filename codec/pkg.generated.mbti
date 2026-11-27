@@ -10,6 +10,8 @@ import {
 // Values
 pub fn build_conversion(record_id~ : String, date~ : String, target_uri~ : String, content_type~ : String, Bytes, refers_to? : String, version? : @header.WarcVersion) -> WarcRecord
 
+pub fn build_http_exchange(request_id~ : String, response_id~ : String, metadata_id? : String, date~ : String, target_uri~ : String, request_bytes~ : Bytes, response_bytes~ : Bytes, metadata_bytes? : Bytes, version? : @header.WarcVersion) -> Array[WarcRecord]
+
 pub fn build_metadata(record_id~ : String, date~ : String, target_uri~ : String, Bytes, concurrent_to? : String, version? : @header.WarcVersion) -> WarcRecord
 
 pub fn build_request(record_id~ : String, date~ : String, target_uri~ : String, Bytes, concurrent_to? : String, version? : @header.WarcVersion) -> WarcRecord
@@ -26,6 +28,8 @@ pub fn encode_all(Array[WarcRecord], auto_digest? : Bool) -> Bytes
 
 pub fn encode_all_gz(Array[WarcRecord], auto_digest? : Bool, level? : Int32) -> Bytes
 
+pub fn encode_http_exchange_gz(request_id~ : String, response_id~ : String, metadata_id? : String, date~ : String, target_uri~ : String, request_bytes~ : Bytes, response_bytes~ : Bytes, metadata_bytes? : Bytes, version? : @header.WarcVersion, level? : Int32) -> Bytes
+
 pub fn encode_record(WarcRecord, auto_digest? : Bool) -> Bytes
 
 pub fn encode_record_gz(WarcRecord, auto_digest? : Bool, level? : Int32) -> Bytes
@@ -37,6 +41,8 @@ pub fn parse_all(BytesView, limits? : ReaderLimits) -> Result[Array[WarcRecord],
 pub fn parse_all_gz(BytesView, limits? : ReaderLimits) -> Result[Array[WarcRecord], CodecError]
 
 pub fn scan_all(BytesView, limits? : ReaderLimits, (WarcRecord) -> Unit) -> Result[Int64, CodecError]
+
+pub fn scan_all_gz(BytesView, limits? : ReaderLimits, (WarcRecord) -> Unit) -> Result[Int64, CodecError]
 
 // Errors
 
@@ -59,6 +65,15 @@ pub(all) struct ReaderLimits {
 pub fn ReaderLimits::default() -> Self
 
 type ReaderState
+
+pub struct WarcGzReader {
+  // private fields
+}
+pub fn WarcGzReader::bytes_consumed(Self) -> Int64
+pub fn WarcGzReader::feed(Self, BytesView) -> Unit
+pub fn WarcGzReader::finish(Self) -> Result[Unit, CodecError]
+pub fn WarcGzReader::new(limits? : ReaderLimits) -> Self
+pub fn WarcGzReader::next_record(Self) -> Result[WarcRecord?, CodecError]
 
 pub struct WarcReader {
   // private fields

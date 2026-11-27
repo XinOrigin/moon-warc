@@ -1,6 +1,6 @@
 ///|
 test "root facade sample_archive_bytes parses, validates, indexes, resolves revisits, and round-trips" {
-  assert_eq(@moon_warc.library_version(), "0.3.1")
+  assert_eq(@moon_warc.library_version(), "0.4.0")
   let raw = @moon_warc.sample_archive_bytes()
   let records = match @moon_warc.parse_archive(raw) {
     Ok(recs) => recs
@@ -230,4 +230,83 @@ test "root facade scan_archive and encode_archive_gz/parse_archive_gz round-trip
   assert_eq(gz_cdx.length(), 3)
   assert_eq(gz_cdx.get(0).map(e => e.offset), Some(parsed_gz[2].offset))
   assert_eq(gz_cdx.get(0).map(e => e.length), Some(parsed_gz[2].record_length))
+}
+
+///|
+test "root facade new_gz_reader and scan_archive_gz stream multi-member .warc.gz across tiny chunks" {
+  let wire = @moon_warc.sample_archive_bytes()
+  let recs = @moon_warc.parse_archive(wire).unwrap()
+  let gz = @moon_warc.encode_archive_gz(recs)
+  let scanned : Array[@codec.WarcRecord] = []
+  assert_eq(@moon_warc.scan_archive_gz(gz, fn(r) { scanned.push(r) }), Ok(6L))
+  let batch = @moon_warc.parse_archive_gz(gz).unwrap()
+  assert_eq(scanned, batch)
+
+  for step in [1, 7, 17, 64] {
+    let reader = @moon_warc.new_gz_reader()
+    let streamed : Array[@codec.WarcRecord] = []
+    let mut pos = 0
+    while pos < gz.length() {
+      let end = if pos + step > gz.length() { gz.length() } else { pos + step }
+      reader.feed(gz[pos:end])
+      while true {
+        match reader.next_record() {
+          Ok(Some(r)) => streamed.push(r)
+          Ok(None) => break
+          Err(_) => fail("WarcGzReader failed")
+        }
+      }
+      pos = end
+    }
+    assert_eq(reader.finish(), Ok(()))
+    assert_eq(reader.bytes_consumed(), gz.length().to_int64())
+    assert_eq(streamed, batch)
+  }
+}
+
+///|
+test "root facade record_http_exchange and record_http_exchange_gz produce valid linked WARC captures" {
+  let req_bytes = b"GET /article HTTP/1.1\r\nHost: news.example.org\r\n\r\n"
+  let resp_bytes = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n"
+  let meta_bytes = b"fetchTimeMs: 18\r\nhopsFromSeed: 1\r\n"
+  let recs = @moon_warc.record_http_exchange(
+    request_id="<urn:uuid:ex-req-1>",
+    response_id="<urn:uuid:ex-resp-1>",
+    metadata_id="<urn:uuid:ex-meta-1>",
+    date="2026-11-27T12:00:00Z",
+    target_uri="https://news.example.org/article",
+    request_bytes=req_bytes,
+    response_bytes=resp_bytes,
+    metadata_bytes=meta_bytes,
+  )
+  assert_eq(recs.length(), 3)
+  let gz = @moon_warc.record_http_exchange_gz(
+    request_id="<urn:uuid:ex-req-1>",
+    response_id="<urn:uuid:ex-resp-1>",
+    metadata_id="<urn:uuid:ex-meta-1>",
+    date="2026-11-27T12:00:00Z",
+    target_uri="https://news.example.org/article",
+    request_bytes=req_bytes,
+    response_bytes=resp_bytes,
+    metadata_bytes=meta_bytes,
+  )
+  let parsed = @moon_warc.parse_archive_gz(gz).unwrap()
+  assert_eq(parsed.length(), 3)
+  let rep = @moon_warc.validate_archive(parsed)
+  assert_true(rep.is_valid())
+  assert_eq(rep.error_count, 0)
+  assert_eq(
+    parsed[0].header.get("WARC-Concurrent-To"),
+    Some("<urn:uuid:ex-resp-1>"),
+  )
+  assert_eq(
+    parsed[1].header.get("WARC-Concurrent-To"),
+    Some("<urn:uuid:ex-req-1>"),
+  )
+  assert_eq(
+    parsed[2].header.get("WARC-Concurrent-To"),
+    Some("<urn:uuid:ex-resp-1>"),
+  )
+  let single_gz = @moon_warc.encode_record_gz(recs[1])
+  assert_eq(@moon_warc.parse_archive_gz(single_gz).unwrap().length(), 1)
 }

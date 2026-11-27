@@ -1,6 +1,6 @@
-# moon-warc Architecture Guide (`v0.3.1`)
+# moon-warc Architecture Guide (`v0.4.0`)
 
-`XinOrigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)** and **RFC 1951/1952 multi-member `.warc.gz`**, built as a layered **Sans-IO** protocol engine across 11 workspace packages (`moon.mod` version `0.3.1`, 35 `.mbt` files, 189/189 tests passing across `wasm`, `wasm-gc`, `js`, and `native`).
+`XinOrigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)** and **RFC 1951/1952 multi-member `.warc.gz`**, built as a layered **Sans-IO** protocol engine across 11 workspace packages (`moon.mod` version `0.4.0`, 35 `.mbt` files, **194/194 tests** passing across `wasm`, `wasm-gc`, `js`, and `native`).
 
 ---
 
@@ -93,9 +93,11 @@ flowchart LR
 ```
 
 ### Memory & Offset Invariants
-1. **Amortized Compaction & Header Scan Watermark**: `WarcReader::compact_if_needed()` resets exhausted buffers immediately and only compacts non-empty buffers when `cursor >= 4096 && cursor >= remaining`, while `header_scan_pos` tracks the `\r\n\r\n` scan watermark across incremental `feed()` calls so large `parse_all()` buffers and multi-chunk streams avoid `O(n²)` copying or rescanning.
-2. **Arbitrary Slice Independence**: `codec/fuzz_test.mbt` and `codec/codec_test.mbt` verify identical decoded records, byte offsets, and `record_length` values across chunk boundaries of 1, 2, 3, 5, 7, 13, 17, 32, and 64 bytes (including >64 KB multi-record streams across multiple compaction cycles) — including cases where `\r\n\r\n` straddles chunks or appears inside binary `resource` payloads.
-3. **Exact Offset Tracking & Overflow Guard**: `total_consumed` tracks cumulative stream bytes across compaction cycles using `checked_add_i32` (explicitly rejecting `Int32` wraparound) so downstream `CDXJ` / `CDX-11` / `JSONL` exporters receive accurate archive byte offsets within the `Int32` boundary.
+1. **Amortized Compaction & Header Scan Watermark (`WarcReader`)**: `WarcReader::compact_if_needed()` resets exhausted buffers immediately and only compacts non-empty buffers when `cursor >= 4096 && cursor >= remaining`, while `header_scan_pos` tracks the `\r\n\r\n` scan watermark across incremental `feed()` calls so large `parse_all()` buffers and multi-chunk streams avoid `O(n²)` copying or rescanning.
+2. **Constant-Member-Memory Streaming `.warc.gz` (`scan_all_gz` & `WarcGzReader`)**: `gzip::try_decompress_member` distinguishes truncated stream prefixes (`NeedMoreInput`) from hard corruption (`Failed(GzipError)`), enabling `WarcGzReader` (`new_gz_reader()`) to accumulate compressed bytes across arbitrary `1B`/`7B`/`17B`/`64B` chunks, emit records as soon as each RFC 1952 member finishes CRC-32/ISIZE validation, immediately slide/free completed member buffers, and track cumulative compressed `bytes_consumed() -> Int64`. `scan_archive_gz` provides a single-pass zero-array streaming variant over contiguous views.
+3. **Arbitrary Slice Independence**: `codec/fuzz_test.mbt`, `codec/codec_test.mbt`, and `moon_warc_test.mbt` verify identical decoded records, `Int64` byte offsets, and `record_length` values across plain chunks and compressed `.warc.gz` chunks (`1B`, `2B`, `3B`, `5B`, `7B`, `13B`, `17B`, `32B`, `64B`).
+4. **Crawler Exchange Capture (`record_http_exchange` / `record_http_exchange_gz`)**: Generates bidirectional `WARC-Concurrent-To` linked `request` + `response` (+ optional `metadata`) captures with automatic SHA-256 block & de-chunked HTTP entity payload digests.
+5. **Exact `Int64` Offset Tracking & Overflow Guard**: `total_consumed` / `compressed_consumed` track cumulative stream bytes using `checked_add_i64` (exceeding 2 GiB streams cleanly while rejecting `Int64` wraparound).
 
 ---
 

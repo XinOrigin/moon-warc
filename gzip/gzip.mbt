@@ -9,6 +9,15 @@ pub(all) struct GzipMember {
 }
 
 ///|
+/// Result of attempting to parse the next complete RFC 1952 Gzip member from a chunked buffer.
+#derive(Eq, Debug)
+pub(all) enum MemberStep {
+  Parsed(GzipMember, Int32)
+  NeedMoreInput
+  Failed(GzipError)
+}
+
+///|
 fn read_u16_le_at(data : BytesView, pos : Int32) -> Result[Int32, GzipError] {
   if pos + 2 > data.length() {
     return Err(
@@ -87,6 +96,164 @@ pub fn compress(data : BytesView, level~ : Int32 = 6) -> Bytes {
 }
 
 ///|
+fn parse_member_at(
+  raw : BytesView,
+  member_start : Int32,
+  base_offset : Int64,
+  max_member_output_bytes : Int32,
+) -> MemberStep {
+  let total_len = raw.length()
+  let mut pos = member_start
+  if pos + 10 > total_len {
+    return NeedMoreInput
+  }
+  if raw[pos] != b'\x1f' || raw[pos + 1] != b'\x8b' {
+    let abs_pos = base_offset + member_start.to_int64()
+    return Failed(
+      InvalidHeader("invalid gzip magic bytes at offset \{abs_pos.to_string()}"),
+    )
+  }
+  if raw[pos + 2] != b'\x08' {
+    return Failed(
+      InvalidHeader(
+        "unsupported gzip compression method \{raw[pos + 2].to_int().to_string()}",
+      ),
+    )
+  }
+  let flg = raw[pos + 3].to_int()
+  if (flg & 0xe0) != 0 {
+    return Failed(InvalidHeader("reserved gzip header flags set"))
+  }
+  pos = pos + 10
+  if (flg & 0x04) != 0 {
+    if pos + 2 > total_len {
+      return NeedMoreInput
+    }
+    let xlen = match read_u16_le_at(raw, pos) {
+      Ok(v) => v
+      Err(_) => return NeedMoreInput
+    }
+    pos = pos + 2
+    if total_len - pos < xlen {
+      return NeedMoreInput
+    }
+    pos = pos + xlen
+  }
+  if (flg & 0x08) != 0 {
+    pos = match skip_zero_terminated(raw, pos, "FNAME") {
+      Ok(p) => p
+      Err(_) => return NeedMoreInput
+    }
+  }
+  if (flg & 0x10) != 0 {
+    pos = match skip_zero_terminated(raw, pos, "FCOMMENT") {
+      Ok(p) => p
+      Err(_) => return NeedMoreInput
+    }
+  }
+  if (flg & 0x02) != 0 {
+    if pos + 2 > total_len {
+      return NeedMoreInput
+    }
+    let expected_hcrc = match read_u16_le_at(raw, pos) {
+      Ok(v) => v
+      Err(_) => return NeedMoreInput
+    }
+    let actual_hcrc = (crc32(raw[member_start:pos]) & 0xffffU).reinterpret_as_int()
+    if expected_hcrc != actual_hcrc {
+      return Failed(ChecksumMismatch("gzip header FHCRC16 mismatch"))
+    }
+    pos = pos + 2
+  }
+  let (uncompressed, deflate_end) = match
+    inflate_raw(raw, start=pos, max_output_bytes=max_member_output_bytes) {
+    Ok(pair) => pair
+    Err(UnexpectedEof(_)) => return NeedMoreInput
+    Err(e) => return Failed(e)
+  }
+  if total_len - deflate_end < 8 {
+    return NeedMoreInput
+  }
+  let expected_crc = match read_u32_le_at(raw, deflate_end) {
+    Ok(v) => v
+    Err(_) => return NeedMoreInput
+  }
+  let expected_isize = match read_u32_le_at(raw, deflate_end + 4) {
+    Ok(v) => v
+    Err(_) => return NeedMoreInput
+  }
+  let abs_member_start = base_offset + member_start.to_int64()
+  let actual_crc = crc32(uncompressed)
+  if actual_crc != expected_crc {
+    return Failed(
+      ChecksumMismatch(
+        "gzip member CRC-32 mismatch at offset \{abs_member_start.to_string()}",
+      ),
+    )
+  }
+  let actual_isize = uncompressed.length().reinterpret_as_uint()
+  if actual_isize != expected_isize {
+    return Failed(
+      SizeMismatch(
+        "gzip member ISIZE mismatch at offset \{abs_member_start.to_string()}",
+      ),
+    )
+  }
+  let member_end = deflate_end + 8
+  Parsed(
+    {
+      compressed_offset: abs_member_start,
+      compressed_length: (member_end - member_start).to_int64(),
+      uncompressed,
+      crc32: actual_crc,
+    },
+    member_end,
+  )
+}
+
+///|
+/// Attempts to decode one complete RFC 1952 Gzip member from the start of `raw`.
+/// Returns `NeedMoreInput` if the buffer only holds a valid truncated prefix, `Parsed(member, next_pos)`
+/// on completion, or `Failed(err)` on malformed headers, DEFLATE syntax errors, or checksum/size mismatches.
+pub fn try_decompress_member(
+  raw : BytesView,
+  base_offset~ : Int64 = 0L,
+  max_member_output_bytes~ : Int32 = 67108864,
+) -> MemberStep {
+  parse_member_at(raw, 0, base_offset, max_member_output_bytes)
+}
+
+///|
+/// Streams all RFC 1952 Gzip members in `raw` one-by-one without retaining prior members
+/// in memory, validating CRC-32 and ISIZE for each member and returning the member count.
+pub fn scan_members(
+  raw : BytesView,
+  max_member_output_bytes~ : Int32 = 67108864,
+  on_member : (GzipMember) -> Unit,
+) -> Result[Int64, GzipError] {
+  let total_len = raw.length()
+  let mut pos = 0
+  let mut count = 0L
+  while pos < total_len {
+    match parse_member_at(raw, pos, 0L, max_member_output_bytes) {
+      Parsed(gz_m, next_pos) => {
+        on_member(gz_m)
+        pos = next_pos
+        count = count + 1L
+      }
+      NeedMoreInput =>
+        return Err(
+          UnexpectedEof(
+            "truncated RFC 1952 Gzip member at compressed offset \{pos.to_string()}",
+          ),
+        )
+      Failed(e) => return Err(e)
+    }
+  }
+  Ok(count)
+}
+
+///|
 /// Decodes all RFC 1952 Gzip members in `raw`, verifying each member's CRC-32 and ISIZE
 /// while tracking exact `(compressed_offset, compressed_length)` byte ranges.
 pub fn decompress_members(
@@ -94,106 +261,10 @@ pub fn decompress_members(
   max_member_output_bytes~ : Int32 = 67108864,
 ) -> Result[Array[GzipMember], GzipError] {
   let members : Array[GzipMember] = []
-  let total_len = raw.length()
-  let mut pos = 0
-  while pos < total_len {
-    let member_start = pos
-    if pos + 10 > total_len {
-      return Err(UnexpectedEof("truncated RFC 1952 Gzip header"))
-    }
-    if raw[pos] != b'\x1f' || raw[pos + 1] != b'\x8b' {
-      return Err(
-        InvalidHeader("invalid gzip magic bytes at offset \{pos.to_string()}"),
-      )
-    }
-    if raw[pos + 2] != b'\x08' {
-      return Err(
-        InvalidHeader(
-          "unsupported gzip compression method \{raw[pos + 2].to_int().to_string()}",
-        ),
-      )
-    }
-    let flg = raw[pos + 3].to_int()
-    if (flg & 0xe0) != 0 {
-      return Err(InvalidHeader("reserved gzip header flags set"))
-    }
-    pos = pos + 10
-    if (flg & 0x04) != 0 {
-      let xlen = match read_u16_le_at(raw, pos) {
-        Ok(v) => v
-        Err(e) => return Err(e)
-      }
-      pos = pos + 2
-      if total_len - pos < xlen {
-        return Err(UnexpectedEof("truncated gzip FEXTRA header field"))
-      }
-      pos = pos + xlen
-    }
-    if (flg & 0x08) != 0 {
-      pos = match skip_zero_terminated(raw, pos, "FNAME") {
-        Ok(p) => p
-        Err(e) => return Err(e)
-      }
-    }
-    if (flg & 0x10) != 0 {
-      pos = match skip_zero_terminated(raw, pos, "FCOMMENT") {
-        Ok(p) => p
-        Err(e) => return Err(e)
-      }
-    }
-    if (flg & 0x02) != 0 {
-      let expected_hcrc = match read_u16_le_at(raw, pos) {
-        Ok(v) => v
-        Err(e) => return Err(e)
-      }
-      let actual_hcrc = (crc32(raw[member_start:pos]) & 0xffffU).reinterpret_as_int()
-      if expected_hcrc != actual_hcrc {
-        return Err(ChecksumMismatch("gzip header FHCRC16 mismatch"))
-      }
-      pos = pos + 2
-    }
-    let (uncompressed, deflate_end) = match
-      inflate_raw(raw, start=pos, max_output_bytes=max_member_output_bytes) {
-      Ok(pair) => pair
-      Err(e) => return Err(e)
-    }
-    if total_len - deflate_end < 8 {
-      return Err(UnexpectedEof("unexpected EOF reading RFC 1952 trailer"))
-    }
-    let expected_crc = match read_u32_le_at(raw, deflate_end) {
-      Ok(v) => v
-      Err(e) => return Err(e)
-    }
-    let expected_isize = match read_u32_le_at(raw, deflate_end + 4) {
-      Ok(v) => v
-      Err(e) => return Err(e)
-    }
-    let actual_crc = crc32(uncompressed)
-    if actual_crc != expected_crc {
-      return Err(
-        ChecksumMismatch(
-          "gzip member CRC-32 mismatch at offset \{member_start.to_string()}",
-        ),
-      )
-    }
-    let actual_isize = uncompressed.length().reinterpret_as_uint()
-    if actual_isize != expected_isize {
-      return Err(
-        SizeMismatch(
-          "gzip member ISIZE mismatch at offset \{member_start.to_string()}",
-        ),
-      )
-    }
-    let member_end = deflate_end + 8
-    members.push({
-      compressed_offset: member_start.to_int64(),
-      compressed_length: (member_end - member_start).to_int64(),
-      uncompressed,
-      crc32: actual_crc,
-    })
-    pos = member_end
+  match scan_members(raw, max_member_output_bytes~, fn(m) { members.push(m) }) {
+    Ok(_) => Ok(members)
+    Err(e) => Err(e)
   }
-  Ok(members)
 }
 
 ///|

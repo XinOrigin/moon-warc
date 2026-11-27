@@ -217,7 +217,7 @@ def verify_cli_outputs() -> None:
         raise AssertionError("CLI stdout differs between native and js targets")
 
     required_markers = [
-        "moon-warc v0.3.1",
+        "moon-warc v0.4.0",
         "Sample archive size: 3188 bytes",
         "=== Records (6) ===",
         "type=warcinfo",
@@ -239,6 +239,11 @@ def verify_cli_outputs() -> None:
         "CDX-11 lines=4 (1 header + 3 rows) | JSONL lines=6",
         "=== Multi-Member .warc.gz & Compressed CDXJ ===",
         "Multi-member .warc.gz: members=6",
+        "=== Streaming WarcGzReader & Crawler HTTP Exchange ===",
+        "scan_archive_gz streamed=6 records (6 emitted)",
+        "WarcGzReader (17B chunks): records=6",
+        "finish_ok=true",
+        "Crawler HTTP exchange .warc.gz: records=3",
     ]
     for marker in required_markers:
         if marker not in native_out:
@@ -802,6 +807,53 @@ fn main {{
   let mbt_gz_wire = @warc.encode_archive_gz(recs_a, auto_digest=false)
   println("GZ_CRC|" + @gzip.crc32(py_gz_a).to_string())
   println("GZ_MBT2PY|" + @digest.hex_encode(mbt_gz_wire))
+
+  let scan_parts : Array[String] = []
+  match @warc.scan_archive_gz(py_gz_a, fn(r) {{
+    scan_parts.push(r.offset.to_string() + ":" + r.record_length.to_string() + ":" + @digest.hex_encode(@digest.sha256(r.payload)))
+  }}) {{
+    Ok(n) => println("GZ_SCAN|" + n.to_string() + "|" + scan_parts.join("|"))
+    Err(_) => println("GZ_SCAN_ERR")
+  }}
+
+  let gzr = @warc.new_gz_reader()
+  let stream_parts : Array[String] = []
+  let mut gpos = 0
+  while gpos < py_gz_a.length() {{
+    let gend = if gpos + 7 > py_gz_a.length() {{ py_gz_a.length() }} else {{ gpos + 7 }}
+    gzr.feed(py_gz_a[gpos:gend])
+    while true {{
+      match gzr.next_record() {{
+        Ok(Some(r)) => stream_parts.push(r.offset.to_string() + ":" + r.record_length.to_string() + ":" + @digest.hex_encode(@digest.sha256(r.payload)))
+        Ok(None) => break
+        Err(_) => {{
+          println("GZ_READER_ERR")
+          return
+        }}
+      }}
+    }}
+    gpos = gend
+  }}
+  let fin_ok = gzr.finish() is Ok(_)
+  println("GZ_READER|" + fin_ok.to_string() + "|" + gzr.bytes_consumed().to_string() + "|" + stream_parts.join("|"))
+
+  let ex_gz = @warc.record_http_exchange_gz(
+    request_id="<urn:uuid:orac-ex-req>",
+    response_id="<urn:uuid:orac-ex-resp>",
+    metadata_id="<urn:uuid:orac-ex-meta>",
+    date="2026-11-27T12:00:00Z",
+    target_uri="https://crawl.example.org/test",
+    request_bytes=b"GET /test HTTP/1.1\\r\\nHost: crawl.example.org\\r\\n\\r\\n",
+    response_bytes=b"HTTP/1.1 200 OK\\r\\nContent-Type: text/plain\\r\\n\\r\\noracle-ex",
+    metadata_bytes=b"status: ok\\r\\n",
+  )
+  match @warc.parse_archive_gz(ex_gz) {{
+    Ok(ex_recs) => {{
+      let ex_rep = @warc.validate_archive(ex_recs)
+      println("EX_GZ|" + ex_recs.length().to_string() + "|" + ex_rep.is_valid().to_string() + "|" + @digest.hex_encode(ex_gz))
+    }}
+    Err(_) => println("EX_GZ_ERR")
+  }}
 }}
 '''
         (probe_dir / "main.mbt").write_text(main_mbt, encoding="utf-8")
@@ -975,6 +1027,22 @@ fn main {{
     assert gzip.decompress(mbt_gz_bytes) == archive_a
     assert int(by_prefix["GZ_CRC"][0].split("|", 1)[1]) == (zlib.crc32(py_gz_archive_a) & 0xFFFFFFFF)
 
+    # Verify v0.4.0 constant-memory scan_archive_gz and 7B-chunked WarcGzReader against Python gzip -9 members
+    gz_scan = by_prefix["GZ_SCAN"][0].split("|")
+    assert gz_scan[1] == "6"
+    assert gz_scan[2:] == gz_py2mbt[3:]
+
+    gz_reader = by_prefix["GZ_READER"][0].split("|")
+    assert gz_reader[1] == "true"
+    assert int(gz_reader[2]) == len(py_gz_archive_a)
+    assert gz_reader[3:] == gz_py2mbt[3:]
+
+    ex_gz = by_prefix["EX_GZ"][0].split("|")
+    assert ex_gz[1] == "3"
+    assert ex_gz[2] == "true"
+    ex_plain = gzip.decompress(bytes.fromhex(ex_gz[3]))
+    assert b"oracle-ex" in ex_plain and b"WARC-Concurrent-To: <urn:uuid:orac-ex-resp>" in ex_plain
+
 
 def main() -> int:
     verify_cli_outputs()
@@ -983,7 +1051,8 @@ def main() -> int:
         "PYTHON ORACLE PASSED: CLI (native+js), SHA-1/SHA-256 Base32 digests, "
         "chunked HTTP, SURT/CDXJ, revisit resolution, folded headers, binary payloads, "
         "byte-for-byte roundtrip, 6 negative archives, bidirectional Python gzip/.warc.gz, "
-        "and v0.3.1 segmentation/subset/CDX-11/JSONL verified."
+        "streaming scan_archive_gz & 7B-chunked WarcGzReader, HTTP exchange capture, "
+        "and v0.4.0 segmentation/subset/CDX-11/JSONL verified."
     )
     return 0
 
