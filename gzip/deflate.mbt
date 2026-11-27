@@ -650,18 +650,18 @@ fn rle_encode_lengths_into(
 fn compute_extra_bits(
   lit_freq : FixedArray[Int32],
   dist_freq : FixedArray[Int32],
-) -> Int32 {
-  let mut bits = 0
+) -> Int64 {
+  let mut bits = 0L
   for k in 0..<29 {
-    let c = lit_freq[257 + k]
-    if c > 0 {
-      bits = bits + c * len_extra[k]
+    let c = lit_freq[257 + k].to_int64()
+    if c > 0L {
+      bits = bits + c * len_extra[k].to_int64()
     }
   }
   for d in 0..<30 {
-    let c = dist_freq[d]
-    if c > 0 {
-      bits = bits + c * dist_extra[d]
+    let c = dist_freq[d].to_int64()
+    if c > 0L {
+      bits = bits + c * dist_extra[d].to_int64()
     }
   }
   bits
@@ -671,19 +671,19 @@ fn compute_extra_bits(
 fn compute_fixed_bits(
   lit_freq : FixedArray[Int32],
   dist_freq : FixedArray[Int32],
-  extra_bits : Int32,
-) -> Int32 {
-  let mut bits = 3 + extra_bits
+  extra_bits : Int64,
+) -> Int64 {
+  let mut bits = 3L + extra_bits
   for sym in 0..<286 {
-    let c = lit_freq[sym]
-    if c > 0 {
-      bits = bits + c * fixed_lit_lens[sym]
+    let c = lit_freq[sym].to_int64()
+    if c > 0L {
+      bits = bits + c * fixed_lit_lens[sym].to_int64()
     }
   }
   for d in 0..<30 {
-    let c = dist_freq[d]
-    if c > 0 {
-      bits = bits + c * 5
+    let c = dist_freq[d].to_int64()
+    if c > 0L {
+      bits = bits + c * 5L
     }
   }
   bits
@@ -731,8 +731,8 @@ fn encode_fixed_tokens(
 ///|
 fn prepare_dynamic_tables(
   sc : DeflateScratch,
-  extra_bits : Int32,
-) -> (Int32, Int32, Int32, Int32, Int32) {
+  extra_bits : Int64,
+) -> (Int32, Int32, Int32, Int32, Int64) {
   let lit_freq = sc.lit_freq
   let dist_freq = sc.dist_freq
   let lit_lens = sc.lit_lens
@@ -770,24 +770,27 @@ fn prepare_dynamic_tables(
   while hclen > 4 && cl_lens[codelen_order[hclen - 1]] == 0 {
     hclen = hclen - 1
   }
-  let mut bits = 17 + 3 * hclen + extra_bits
+  let mut bits = (17 + 3 * hclen).to_int64() + extra_bits
   for s in 0..<19 {
-    let c = cl_freq[s]
-    if c > 0 {
-      bits = bits + c * cl_lens[s]
+    let c = cl_freq[s].to_int64()
+    if c > 0L {
+      bits = bits + c * cl_lens[s].to_int64()
     }
   }
-  bits = bits + cl_freq[16] * 2 + cl_freq[17] * 3 + cl_freq[18] * 7
+  bits = bits +
+    cl_freq[16].to_int64() * 2L +
+    cl_freq[17].to_int64() * 3L +
+    cl_freq[18].to_int64() * 7L
   for sym in 0..<hlit {
-    let c = lit_freq[sym]
-    if c > 0 {
-      bits = bits + c * lit_lens[sym]
+    let c = lit_freq[sym].to_int64()
+    if c > 0L {
+      bits = bits + c * lit_lens[sym].to_int64()
     }
   }
   for d in 0..<hdist {
-    let c = dist_freq[d]
-    if c > 0 {
-      bits = bits + c * dist_lens[d]
+    let c = dist_freq[d].to_int64()
+    if c > 0L {
+      bits = bits + c * dist_lens[d].to_int64()
     }
   }
   (hlit, hdist, hclen, rle_len, bits)
@@ -866,6 +869,17 @@ fn encode_dynamic_tokens(
 }
 
 ///|
+fn clamp_capacity_i32(n : Int64) -> Int32 {
+  if n <= 0L {
+    16
+  } else if n > 2147483640L {
+    2147483640
+  } else {
+    n.to_int()
+  }
+}
+
+///|
 /// Compresses `data` into an RFC 1951 DEFLATE raw stream (`level == 0` uses Stored blocks;
 /// `level 1..5` uses LZ77 + Fixed Huffman; `level >= 6` selects the smallest of Dynamic Huffman `BTYPE=2`, Fixed Huffman `BTYPE=1`, and Stored `BTYPE=0`).
 pub fn deflate_raw(data : BytesView, level~ : Int32 = 6) -> Bytes {
@@ -891,27 +905,36 @@ pub fn deflate_raw(data : BytesView, level~ : Int32 = 6) -> Bytes {
   let tok_cnt = collect_lz77_tokens(data, level, sc)
   let extra_bits = compute_extra_bits(sc.lit_freq, sc.dist_freq)
   let fixed_bits = compute_fixed_bits(sc.lit_freq, sc.dist_freq, extra_bits)
-  let fixed_bytes = (fixed_bits + 7) / 8
+  let fixed_bytes_i64 = (fixed_bits + 7L) / 8L
   let out = if level >= 6 && total >= 64 {
     let (hlit, hdist, hclen, rle_len, dyn_bits) = prepare_dynamic_tables(
       sc, extra_bits,
     )
-    let dyn_bytes = (dyn_bits + 7) / 8
-    let stored_bytes = total + 5 * ((total + 65534) / 65535)
-    let best_huff = if dyn_bytes < fixed_bytes {
-      dyn_bytes
+    let dyn_bytes_i64 = (dyn_bits + 7L) / 8L
+    let total_i64 = total.to_int64()
+    let stored_bytes_i64 = total_i64 + 5L * ((total_i64 + 65534L) / 65535L)
+    let best_huff = if dyn_bytes_i64 < fixed_bytes_i64 {
+      dyn_bytes_i64
     } else {
-      fixed_bytes
+      fixed_bytes_i64
     }
-    if stored_bytes < best_huff {
+    if stored_bytes_i64 < best_huff {
       deflate_stored(data)
-    } else if dyn_bytes < fixed_bytes {
-      encode_dynamic_tokens(sc, tok_cnt, hlit, hdist, hclen, rle_len, dyn_bytes)
+    } else if dyn_bytes_i64 < fixed_bytes_i64 {
+      encode_dynamic_tokens(
+        sc,
+        tok_cnt,
+        hlit,
+        hdist,
+        hclen,
+        rle_len,
+        clamp_capacity_i32(dyn_bytes_i64),
+      )
     } else {
-      encode_fixed_tokens(sc, tok_cnt, fixed_bytes + 4)
+      encode_fixed_tokens(sc, tok_cnt, clamp_capacity_i32(fixed_bytes_i64 + 4L))
     }
   } else {
-    encode_fixed_tokens(sc, tok_cnt, fixed_bytes + 4)
+    encode_fixed_tokens(sc, tok_cnt, clamp_capacity_i32(fixed_bytes_i64 + 4L))
   }
   if owns_slot {
     sc.shrink_if_huge()

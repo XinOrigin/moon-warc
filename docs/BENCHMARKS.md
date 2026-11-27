@@ -5,7 +5,7 @@ This report records measured end-to-end throughput across all four MoonBit compi
 ## Environment & Toolchain
 
 - **Cloud CI Runner (Primary `v0.5.0` Unthrottled Linux Baseline)**: Tencent Cloud CNB `16 vCPU / 32 GiB RAM` (`AMD EPYC 9754`, `Linux 5.4 x86_64`), `moon 0.1.20261126` / `moonc v1.0.0-rc1+3c0520448` / `moonrun 0.1.20261126`, `Node.js v22.20.0`, `Python 3.12.3`.
-- **Local Cross-Check**: Apple M4 (`Darwin arm64`), `moon 0.1.20261119` / `moonc v0.10.22+124d61d05` (pass **196/196** tests across all 4 targets & **5/5** `moon bench`).
+- **Local Cross-Check**: Apple M4 (`Darwin arm64`), `moon 0.1.20261119` / `moonc v0.10.22+124d61d05` (pass **200/200** tests across all 4 targets & **5/5** `moon bench`).
 - **Harness**: [`scripts/run_benchmarks.py`](../scripts/run_benchmarks.py) (`--release`, warm min-of-3 measurement eliminating cold start latency, comparing `0`-iter spawn/build baseline vs `150`-iter full workload) and native [`moon_warc_bench_test.mbt`](../moon_warc_bench_test.mbt) (`moon bench --release --target native`).
 
 ## Workload Definition (`92.37 MiB` Verified Pipeline)
@@ -59,7 +59,7 @@ At `level >= 6`, `deflate_raw` builds length-limited canonical Huffman trees (`c
 | Pure-MoonBit SHA-1 / SHA-256 & Base32/Hex | Deferred (not implemented) | Full FIPS 180-4 / RFC 3174 block + digest verifier & auto-digest writer |
 | HTTP/1.x Header Split & RFC 9112 Chunked Decode | Basic header parsing | Binary-safe splitter (`obs-fold`, multi-TE) + full chunked decoder for `WARC-Payload-Digest` |
 | SURT / CDXJ / WACZ 1.1.1 / §9 / JSONL | Basic index / validate | Lexical SURT (`lexical_compare`), CDXJ `lookup_closest`, CDX-11, **WACZ 1.1.1 manifests**, `resolve_revisits`, §9 split/reassembly, RFC 8259 JSONL, `record_http_exchange_gz` |
-| Cross-Target Verification, `moon bench` & Examples | Basic unit tests | **196/196 tests** on all 4 targets + **5/5 `moon bench`** + `examples/crawler_to_rag` + Python oracle + browser demo |
+| Cross-Target Verification, `moon bench` & Examples | Basic unit tests | **200/200 tests** on all 4 targets + **5/5 `moon bench`** + `examples/crawler_to_rag` + Python oracle + browser demo |
 
 Reproduce locally:
 

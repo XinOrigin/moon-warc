@@ -177,3 +177,35 @@ test "validate_archive verifies SHA-1 digests and WARC/1.0 non-HTTP resource rec
   assert_eq(report.error_count, 0)
   assert_eq(report.warning_count, 0)
 }
+
+///|
+test "validate_archive rejects WARC-Record-ID and WARC-Segment-Origin-ID with inner whitespace or nested angle brackets" {
+  let bad_id = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "resource"),
+      ("WARC-Record-ID", "<urn:uuid:bad space>"),
+      ("WARC-Date", "2026-11-28T00:00:00Z"),
+      ("WARC-Target-URI", "https://example.org/a"),
+      ("Content-Length", "2"),
+    ],
+    b"hi",
+  )
+  let bad_cont = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "continuation"),
+      ("WARC-Record-ID", "<urn:uuid:ok-cont>"),
+      ("WARC-Date", "2026-11-28T00:00:01Z"),
+      ("WARC-Segment-Origin-ID", "<<urn:uuid:nested>>"),
+      ("WARC-Segment-Number", "2"),
+      ("Content-Length", "2"),
+    ],
+    b"hi",
+  )
+  let report = @validate.validate_archive([bad_id, bad_cont])
+  assert_false(report.is_valid())
+  let codes = report.diagnostics.map(d => d.code)
+  assert_true(codes.contains("INVALID_RECORD_ID"))
+  assert_true(codes.contains("INVALID_SEGMENT_ORIGIN_ID"))
+}

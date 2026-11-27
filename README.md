@@ -173,7 +173,7 @@ test "readme: chunked WarcGzReader streaming, HTTP exchange capture, and WACZ 1.
 | **密码学摘要验真** | 文档注明 `SHA` 摘要计算延后（deferred） | 纯 MoonBit FIPS 180-4 **SHA-1 / SHA-256** + RFC 4648 Base32/Hex 增量自动签发与验真 |
 | **HTTP/1.x 载荷与 Chunked 解码** | 基础头分离 | 二进制安全分割（`obs-fold`、多头 `Transfer-Encoding`）+ 完整 **RFC 9112 Chunked** 解码 |
 | **检索、打包与 RAG 管线** | 基础内存索引与校验 | `String::lexical_compare` SURT/CDXJ `lookup_closest`、CDX-11、**WACZ 1.1.1 清单**、§9 分片重组、`revisit` 溯源、RFC 8259 JSONL |
-| **实战接入、基准与交互演示** | 库内基础单测 | 四端 **196/196 测试** + **`moon bench`**（**5/5**）+ Python 差分预言机 + CPython `zlib`/`hashlib` 基准 + **`examples/crawler_to_rag`** + 浏览器离线工作台 |
+| **实战接入、基准与交互演示** | 库内基础单测 | 四端 **200/200 测试** + **`moon bench`**（**5/5**）+ Python 差分预言机 + CPython `zlib`/`hashlib` 基准 + **`examples/crawler_to_rag`** + 浏览器离线工作台 |
 
 ---
 
@@ -235,14 +235,14 @@ moon bench --release --target native
 
 ## 多目标验证矩阵与基准测试 / Verification & Benchmarks
 
-本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台（含 macOS `arm64` 与腾讯云 CNB `16 vCPU / 32 GiB` `Linux x86_64`）严格验证，共 **196 项**测试（193 个模块单元测试/Fuzz/负例 + **3 个 `README.mbt.md` 可执行文档测试**）+ **5 个 `moon bench` 原生基准**，覆盖全部 **12 个包 / 38 个 `.mbt` 源文件**（`moon coverage` 实测全仓库未覆盖 `295` 行 / `20` 文件，其中核心 10 库包仅 **`227` 行**未覆盖，其余 `68` 行为 `cmd/main` 与 `examples/crawler_to_rag` 演示二进制入口）：
+本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台（含 macOS `arm64` 与腾讯云 CNB `16 vCPU / 32 GiB` `Linux x86_64`）严格验证，共 **200 项**测试（197 个模块单元测试/Fuzz/负例 + **3 个 `README.mbt.md` 可执行文档测试**）+ **5 个 `moon bench` 原生基准**，覆盖全部 **12 个包 / 38 个 `.mbt` 源文件**（`moon coverage` 实测全仓库未覆盖 `295` 行 / `20` 文件，其中核心 10 库包仅 **`227` 行**未覆盖，其余 `68` 行为 `cmd/main` 与 `examples/crawler_to_rag` 演示二进制入口）：
 
 | 编译目标 / 外部基线 / 门禁 | 实测结果 | 端到端稳态流水线吞吐 (`--release`, 腾讯云 CNB `16C32G` `AMD EPYC 9754`, Dynamic Huffman `BTYPE=2`, `92.37 MiB`) |
 | --- | --- | --- |
-| **`native`** (纯 MoonBit) | **196 / 196 passed** + **5/5 `moon bench`** | **`76.26 MiB/s`** (`steady 1.211 s`, `wall 1.235 s` · 压缩 `118,906 B` = **`73.7%`**) |
-| **`wasm-gc`** (纯 MoonBit) | **196 / 196 passed** | **`68.42 MiB/s`** (`steady 1.350 s`, `wall 1.393 s` · 压缩与 `native` 比特一致) |
-| **`js`** (纯 MoonBit) | **196 / 196 passed** | **`43.76 MiB/s`** (`steady 2.111 s`, `wall 2.217 s`) |
-| **`wasm`** (纯 MoonBit) | **196 / 196 passed** | **`31.74 MiB/s`** (`steady 2.910 s`, `wall 2.969 s`) |
+| **`native`** (纯 MoonBit) | **200 / 200 passed** + **5/5 `moon bench`** | **`76.26 MiB/s`** (`steady 1.211 s`, `wall 1.235 s` · 压缩 `118,906 B` = **`73.7%`**) |
+| **`wasm-gc`** (纯 MoonBit) | **200 / 200 passed** | **`68.42 MiB/s`** (`steady 1.350 s`, `wall 1.393 s` · 压缩与 `native` 比特一致) |
+| **`js`** (纯 MoonBit) | **200 / 200 passed** | **`43.76 MiB/s`** (`steady 2.111 s`, `wall 2.217 s`) |
+| **`wasm`** (纯 MoonBit) | **200 / 200 passed** | **`31.74 MiB/s`** (`steady 2.910 s`, `wall 2.969 s`) |
 | *外部基线*: CPython (`zlib` + `hashlib` C 扩展) | 同机同语料基线 | `184.19 MiB/s` (`0.501 s`, `gzip -6` `118,547 B` = **`73.4%`** · 与本库仅差 359 B / 0.3%) |
 | **CLI + 示例** (`cmd/main` + `crawler_to_rag`) | `native` / `js` 逐字节一致 | 含 `.warc.gz` 多成员、分片 `WarcGzReader`、HTTP 会话捕获与 WACZ 1.1.1 -> RAG JSONL |
 | **Python 差分预言机** | **通过（exit 0）** | 对照 `hashlib`、`base64`、`zlib.crc32`、`gzip -9` 动态哈夫曼、`scan_archive_gz`、7B 分片 `WarcGzReader`、WACZ 与 `json` |

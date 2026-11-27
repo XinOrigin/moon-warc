@@ -31,6 +31,32 @@ fn write_wacz_resource_json(
 }
 
 ///|
+fn sanitize_wacz_filename(raw : String) -> String {
+  let trimmed = raw.trim().to_owned()
+  let mut last_sep = -1
+  for i in 0..<trimmed.length() {
+    let ch = trimmed[i].to_int()
+    if ch == 47 || ch == 92 {
+      last_sep = i
+    }
+  }
+  let base = if last_sep >= 0 {
+    trimmed[last_sep + 1:trimmed.length()].trim().to_owned()
+  } else {
+    trimmed
+  }
+  if base.is_empty() || base == "." || base == ".." {
+    return "data.warc.gz"
+  }
+  for ch in base {
+    if ch.to_int() < 32 {
+      return "data.warc.gz"
+    }
+  }
+  base
+}
+
+///|
 /// Generates WebRecorder WACZ 1.1.1 specification manifests (`datapackage.json`,
 /// `datapackage-digest.json`, and `indexes/index.cdxj`) over `records` and their
 /// corresponding compressed `.warc.gz` archive bytes (`warc_gz_bytes`), computing
@@ -43,11 +69,7 @@ pub fn build_wacz_manifests(
   main_page_url? : String,
   main_page_date? : String,
 ) -> WaczManifests {
-  let clean_warc_name = if warc_filename.trim().to_owned().is_empty() {
-    "data.warc.gz"
-  } else {
-    warc_filename.trim().to_owned()
-  }
+  let clean_warc_name = sanitize_wacz_filename(warc_filename)
   let cdx_body = @cdxj.CdxjIndex::build(records, filename=clean_warc_name).format_all()
   let cdxj_text = if cdx_body.is_empty() { "" } else { cdx_body + "\n" }
   let cdxj_bytes = @utf8.encode(cdxj_text)

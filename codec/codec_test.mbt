@@ -456,3 +456,36 @@ test "WarcGzReader and scan_all_gz enforce finish EOF, hard corrupt failures, an
   assert_true(bad_reader.next_record() is Ok(Some(_)))
   assert_true(bad_reader.next_record() is Err(@codec.GzipError(_)))
 }
+
+///|
+test "WarcGzReader enforces compressed member limit on unterminated FNAME and shrinks large completed buffers" {
+  let gz_limited = @codec.WarcGzReader::new(limits={
+    max_header_bytes: 64,
+    max_payload_bytes: 128,
+  })
+  // RFC 1952 header with FNAME flag (0x08) and 6000 bytes without NUL terminator
+  gz_limited.feed(
+    b"\x1f\x8b\x08\x08\x00\x00\x00\x00\x00\xff" + Bytes::make(6000, b'a'),
+  )
+  assert_true(gz_limited.next_record() is Err(@codec.LimitExceeded(_)))
+
+  // Large >64 KiB stored .warc.gz member completes and resets oversized internal buffer cleanly
+  let large_payload = Bytes::make(70000, b'X')
+  let large_rec = @codec.build_resource(
+    record_id="<urn:uuid:large-gz-member>",
+    date="2026-11-28T00:00:00Z",
+    target_uri="https://example.org/large.bin",
+    content_type="application/octet-stream",
+    large_payload,
+  )
+  let large_gz = @codec.encode_record_gz(large_rec, level=0)
+  assert_true(large_gz.length() > 65536)
+  let r = @codec.WarcGzReader::new()
+  r.feed(large_gz)
+  match r.next_record() {
+    Ok(Some(got)) => assert_eq(got.payload, large_payload)
+    _ => fail("expected large >64KiB .warc.gz record to decode")
+  }
+  assert_eq(r.next_record(), Ok(None))
+  assert_eq(r.finish(), Ok(()))
+}

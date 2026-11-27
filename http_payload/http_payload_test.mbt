@@ -176,3 +176,15 @@ test "http_payload handles obs-fold headers and multiple Transfer-Encoding heade
     @http_payload.parse_http_response(b"NOTHTTP 200 OK\r\n\r\n") is Err(_),
   )
 }
+
+///|
+test "decode_chunked rejects Int32::MAX hex chunk size without integer overflow panic" {
+  assert_eq(
+    @http_payload.decode_chunked(b"7fffffff\r\n\r\n"),
+    Err(@http_payload.TruncatedChunkBody),
+  )
+  assert_eq(
+    @http_payload.decode_chunked(b"7fffffff\r\nabc"),
+    Err(@http_payload.TruncatedChunkBody),
+  )
+}

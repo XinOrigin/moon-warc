@@ -22,7 +22,7 @@
 
 ### Q5：`sha1` 和 `sha256` 在 `wasm` / `wasm-gc` / `js` / `native` 上如何保证比特级一致？
 - **确定性算术**：纯 MoonBit 实现的 FIPS 180-4 / RFC 3174 哈希器在 [`digest/sha1.mbt`](../digest/sha1.mbt) 与 [`digest/sha256.mbt`](../digest/sha256.mbt) 中显式使用 32/64 位无符号整型（`UInt32` / `UInt64`）和定长掩码位运算，完全规避 JS 53-bit float 精度截断及有符号右移语义差异。
-- **实测覆盖**：同一套包含密码学摘要、Dynamic Huffman、Fuzz 与负例的 **196 个测试用例**在四大编译目标及 `Darwin arm64` / CNB `Linux x86_64` 双平台全部跑通（`196/196 passed` + **5/5 `moon bench`**），CLI 与 `examples/crawler_to_rag` 在 `--target native` 与 `--target js` 下的 stdout 字节级一致。
+- **实测覆盖**：同一套包含密码学摘要、Dynamic Huffman、Fuzz 与负例的 **200 个测试用例**在四大编译目标及 `Darwin arm64` / CNB `Linux x86_64` 双平台全部跑通（`200/200 passed` + **5/5 `moon bench`**），CLI 与 `examples/crawler_to_rag` 在 `--target native` 与 `--target js` 下的 stdout 字节级一致。
 
 ### Q6：ISO 28500 §9 分片记录（`WARC-Segment-Number`）是如何解决 `auto_digest` 冲突的？
 - 当一条超长 HTTP `response` 被 `segment_record` 切分为第 1 段（origin）和第 `2..N` 段（`continuation`）时，第 1 段的 `payload` 仅包含前 `max_segment_bytes` 字节，但协议要求其保留整个完整逻辑实体的 `WARC-Payload-Digest`。
@@ -39,7 +39,7 @@
 
 ### Q9：如何回应大赛规则中的“AI 辅助编程必须可解释、可审查、可验证”？
 - **透明披露**：仓库根目录 [`AI_USAGE.md`](../AI_USAGE.md) 明确披露了 `v0.1.0`–`v0.2.0` 初始原型的高密度 AI 辅助过程，以及后续 `v0.2.1`–`v0.5.0` 的交叉审计、CNB `16C32G` Linux + 本地 macOS 双平台验证、`moonc v1.0.0-rc1` 弃用检查清理与真实拦错记录。
-- **跨后端、覆盖率与 Python 对照**：通过四编译目标全量测试（196 项）+ 5 项 `moon bench --release`、`moon coverage analyze` 分支统计（核心 10 库包未覆盖行数自 `v0.4.0` 的 `229` 行进一步降至 **`227`** 行），并在 `native` 探针下由 [`scripts/verify_oracle.py`](../scripts/verify_oracle.py) 调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip -9`、`json`）核对摘要、动态哈夫曼、流式 `scan_archive_gz`、7B 分片 `WarcGzReader`、HTTP 会话捕获与 WACZ 1.1.1 清单。
+- **跨后端、覆盖率与 Python 对照**：通过四编译目标全量测试（200 项）+ 5 项 `moon bench --release`、`moon coverage analyze` 分支统计（核心 10 库包未覆盖行数自 `v0.4.0` 的 `229` 行进一步降至 **`227`** 行），并在 `native` 探针下由 [`scripts/verify_oracle.py`](../scripts/verify_oracle.py) 调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip -9`、`json`）核对摘要、动态哈夫曼、流式 `scan_archive_gz`、7B 分片 `WarcGzReader`、HTTP 会话捕获与 WACZ 1.1.1 清单。
 - **公共契约固化**：通过 `moon info` 生成并跟踪各包 `pkg.generated.mbti` 接口文件，`v0.2.1+` 已将 `WarcReader`、`WarcGzReader`、`Sha1Hasher`、`Sha256Hasher` 与 `CdxjIndex` 内部可变字段收紧至包内私有。
 
 ### Q10：多成员 `.warc.gz` 流式解码、Dynamic Huffman 压缩与 WACZ/爬虫对接达到了什么水平？

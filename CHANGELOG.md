@@ -21,7 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`moonc v1.0.0-rc1` Strict `--deny-warn` Compatibility (`codec/writer.mbt`, `gzip/`, `pipeline/segment.mbt`)**: Replaced all 14 deprecated `@buffer.Buffer::write_bytes` calls with `.write_bytesview(...[:])` caught by Tencent Cloud CNB `moon 0.1.20261126` (`v1.0.0-rc1`), ensuring clean `--deny-warn --target all` passes across both `0.10.22` and `1.0.0-rc1` with **196/196** tests passing (`12` packages, `38` `.mbt` files, **227** uncovered core library lines).
+- **`moonc v1.0.0-rc1` Strict `--deny-warn` Compatibility (`codec/writer.mbt`, `gzip/`, `pipeline/segment.mbt`)**: Replaced all 14 deprecated `@buffer.Buffer::write_bytes` calls with `.write_bytesview(...[:])` caught by Tencent Cloud CNB `moon 0.1.20261126` (`v1.0.0-rc1`), ensuring clean `--deny-warn --target all` passes across both `0.10.22` and `1.0.0-rc1` with **200/200** tests passing (`12` packages, `38` `.mbt` files, **227** uncovered core library lines).
+
+### Fixed & Hardened
+
+- **Chunked Transfer `Int32` Overflow Guard (`http_payload/http_payload.mbt`)**: Replaced addition-based slice bounds checks in `decode_chunked` with subtraction-based guards so `7fffffff\r\n\r\n` returns `Err(TruncatedChunkBody)` instead of panicking on signed overflow.
+- **`WarcGzReader` Compressed Member Limits & Buffer Reclamation (`codec/reader.mbt`)**: Enforced `max_compressed_member_for_limits(limits)` against unbounded incomplete gzip streams (`FNAME`/deflate stalling) and immediately released `> 64 KiB` buffers when drained.
+- **Pipeline, DEFLATE & Validation Hardening (`pipeline/`, `gzip/`, `validate/`)**: Excluded `revisit` and `continuation` raw payloads from `export_jsonl` `"text"` extraction; normalized `warc_filename` to a clean basename in `build_wacz_manifests`; widened `deflate_raw` bit-cost accumulators to `Int64`; and rejected inner whitespace or nested `<`/`>` characters in `is_uri_angle_wrapped`.
 
 ## [0.4.0] - 2026-11-27
 
