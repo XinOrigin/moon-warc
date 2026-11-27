@@ -831,4 +831,25 @@ test "ArchiveFilter rejects invalid 14-digit calendar dates and reassemble_segme
     @pipeline.reassemble_segments(modified)
     is Err(@pipeline.TotalLengthMismatch(_)),
   )
+  // Negative segmentation & JSONL binary/truncation coverage
+  assert_true(
+    @pipeline.segment_record(recs[2], max_segment_bytes=0)
+    is Err(@pipeline.InvalidSegmentSize(_)),
+  )
+  assert_true(
+    @pipeline.segment_record(recs[2], max_segment_bytes=100000)
+    .unwrap()
+    .length() ==
+    1,
+  )
+  let jsonl_no_body = @pipeline.export_jsonl(recs, options={
+    include_body_text: false,
+    max_body_chars: 10,
+  })
+  assert_false(jsonl_no_body.contains("\"text\":"))
+  let jsonl_short = @pipeline.export_jsonl(recs, options={
+    include_body_text: true,
+    max_body_chars: 5,
+  })
+  assert_true(jsonl_short.contains("\"text\":\"Hello\""))
 }

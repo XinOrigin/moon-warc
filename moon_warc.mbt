@@ -1,7 +1,7 @@
 ///|
 /// Returns the library version string.
 pub fn library_version() -> String {
-  "0.3.1"
+  "0.4.0"
 }
 
 ///|
@@ -10,6 +10,14 @@ pub fn new_reader(
   limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
 ) -> @codec.WarcReader {
   @codec.WarcReader::new(limits~)
+}
+
+///|
+/// Creates a fresh chunk-incremental Sans-IO `WarcGzReader` for streaming multi-member `.warc.gz` archives.
+pub fn new_gz_reader(
+  limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
+) -> @codec.WarcGzReader {
+  @codec.WarcGzReader::new(limits~)
 }
 
 ///|
@@ -71,6 +79,71 @@ pub fn parse_archive_gz(
   limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
 ) -> Result[Array[@codec.WarcRecord], @codec.CodecError] {
   @codec.parse_all_gz(raw, limits~)
+}
+
+///|
+/// Streams a single- or multi-member `.warc.gz` byte stream record-by-record with constant member RAM,
+/// preserving exact compressed member `(offset, record_length)` values and returning record count.
+pub fn scan_archive_gz(
+  raw : BytesView,
+  limits~ : @codec.ReaderLimits = @codec.ReaderLimits::default(),
+  on_record : (@codec.WarcRecord) -> Unit,
+) -> Result[Int64, @codec.CodecError] {
+  @codec.scan_all_gz(raw, limits~, on_record)
+}
+
+///|
+/// Builds linked ISO 28500 `request`, `response`, and optional `metadata` records for a crawled HTTP exchange.
+pub fn record_http_exchange(
+  request_id~ : String,
+  response_id~ : String,
+  metadata_id? : String,
+  date~ : String,
+  target_uri~ : String,
+  request_bytes~ : Bytes,
+  response_bytes~ : Bytes,
+  metadata_bytes? : Bytes,
+  version~ : @header.WarcVersion = @header.Warc1_1,
+) -> Array[@codec.WarcRecord] {
+  @codec.build_http_exchange(
+    request_id~,
+    response_id~,
+    metadata_id?,
+    date~,
+    target_uri~,
+    request_bytes~,
+    response_bytes~,
+    metadata_bytes?,
+    version~,
+  )
+}
+
+///|
+/// Captures a crawled HTTP exchange directly as a multi-member `.warc.gz` archive with auto digests.
+pub fn record_http_exchange_gz(
+  request_id~ : String,
+  response_id~ : String,
+  metadata_id? : String,
+  date~ : String,
+  target_uri~ : String,
+  request_bytes~ : Bytes,
+  response_bytes~ : Bytes,
+  metadata_bytes? : Bytes,
+  version~ : @header.WarcVersion = @header.Warc1_1,
+  level~ : Int32 = 6,
+) -> Bytes {
+  @codec.encode_http_exchange_gz(
+    request_id~,
+    response_id~,
+    metadata_id?,
+    date~,
+    target_uri~,
+    request_bytes~,
+    response_bytes~,
+    metadata_bytes?,
+    version~,
+    level~,
+  )
 }
 
 ///|

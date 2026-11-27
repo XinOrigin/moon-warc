@@ -161,4 +161,18 @@ test "http_payload handles obs-fold headers and multiple Transfer-Encoding heade
     @http_payload.parse_http_response(blank_in_hdr)
     is Err(@http_payload.InvalidHeaderLine(_)),
   )
+  // Chunked error branches: truncated chunk, missing trailing CRLF, and invalid hex length
+  for
+    bad_chunked in [
+      b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhi\r\n0\r\n\r\n",
+      b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhi", b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhiXX0\r\n\r\n",
+      b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX-Trailer: v",
+    ] {
+    let parsed = @http_payload.parse_http_response(bad_chunked).unwrap()
+    assert_true(@http_payload.extract_entity_body(parsed) is Err(_))
+  }
+  assert_true(@http_payload.parse_http_request(b"BAD") is Err(_))
+  assert_true(
+    @http_payload.parse_http_response(b"NOTHTTP 200 OK\r\n\r\n") is Err(_),
+  )
 }

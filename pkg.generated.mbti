@@ -4,6 +4,7 @@ package "XinOrigin/moon_warc"
 import {
   "XinOrigin/moon_warc/cdxj",
   "XinOrigin/moon_warc/codec",
+  "XinOrigin/moon_warc/header",
   "XinOrigin/moon_warc/pipeline",
   "XinOrigin/moon_warc/validate",
 }
@@ -27,6 +28,8 @@ pub fn filter_records(Array[@codec.WarcRecord], @pipeline.ArchiveFilter, include
 
 pub fn library_version() -> String
 
+pub fn new_gz_reader(limits? : @codec.ReaderLimits) -> @codec.WarcGzReader
+
 pub fn new_reader(limits? : @codec.ReaderLimits) -> @codec.WarcReader
 
 pub fn parse_archive(BytesView, limits? : @codec.ReaderLimits) -> Result[Array[@codec.WarcRecord], @codec.CodecError]
@@ -35,11 +38,17 @@ pub fn parse_archive_gz(BytesView, limits? : @codec.ReaderLimits) -> Result[Arra
 
 pub fn reassemble_segments(Array[@codec.WarcRecord]) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
 
+pub fn record_http_exchange(request_id~ : String, response_id~ : String, metadata_id? : String, date~ : String, target_uri~ : String, request_bytes~ : Bytes, response_bytes~ : Bytes, metadata_bytes? : Bytes, version? : @header.WarcVersion) -> Array[@codec.WarcRecord]
+
+pub fn record_http_exchange_gz(request_id~ : String, response_id~ : String, metadata_id? : String, date~ : String, target_uri~ : String, request_bytes~ : Bytes, response_bytes~ : Bytes, metadata_bytes? : Bytes, version? : @header.WarcVersion, level? : Int32) -> Bytes
+
 pub fn resolve_revisits(Array[@codec.WarcRecord]) -> Array[@validate.ResolvedRevisit]
 
 pub fn sample_archive_bytes() -> Bytes
 
 pub fn scan_archive(BytesView, limits? : @codec.ReaderLimits, (@codec.WarcRecord) -> Unit) -> Result[Int64, @codec.CodecError]
+
+pub fn scan_archive_gz(BytesView, limits? : @codec.ReaderLimits, (@codec.WarcRecord) -> Unit) -> Result[Int64, @codec.CodecError]
 
 pub fn segment_record(@codec.WarcRecord, max_segment_bytes~ : Int32) -> Result[Array[@codec.WarcRecord], @pipeline.PipelineError]
 

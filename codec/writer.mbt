@@ -287,3 +287,80 @@ pub fn encode_all_gz(
   }
   out.to_bytes()
 }
+
+///|
+/// Builds linked ISO 28500 `request`, `response`, and optional `metadata` records for a single
+/// crawled HTTP exchange, automatically wiring `WARC-Concurrent-To` links across records.
+pub fn build_http_exchange(
+  request_id~ : String,
+  response_id~ : String,
+  metadata_id? : String,
+  date~ : String,
+  target_uri~ : String,
+  request_bytes~ : Bytes,
+  response_bytes~ : Bytes,
+  metadata_bytes? : Bytes,
+  version~ : @header.WarcVersion = @header.Warc1_1,
+) -> Array[WarcRecord] {
+  let req = build_request(
+    record_id=request_id,
+    date~,
+    target_uri~,
+    concurrent_to=response_id,
+    version~,
+    request_bytes,
+  )
+  let resp = build_response(
+    record_id=response_id,
+    date~,
+    target_uri~,
+    concurrent_to=request_id,
+    version~,
+    response_bytes,
+  )
+  let recs : Array[WarcRecord] = [req, resp]
+  match (metadata_id, metadata_bytes) {
+    (Some(mid), Some(mbytes)) =>
+      recs.push(
+        build_metadata(
+          record_id=mid,
+          date~,
+          target_uri~,
+          concurrent_to=response_id,
+          version~,
+          mbytes,
+        ),
+      )
+    _ => ()
+  }
+  recs
+}
+
+///|
+/// Captures a crawled HTTP exchange (`request` + `response` + optional `metadata`) directly as
+/// a validated multi-member `.warc.gz` byte stream with automatic SHA-256 block & payload digests.
+pub fn encode_http_exchange_gz(
+  request_id~ : String,
+  response_id~ : String,
+  metadata_id? : String,
+  date~ : String,
+  target_uri~ : String,
+  request_bytes~ : Bytes,
+  response_bytes~ : Bytes,
+  metadata_bytes? : Bytes,
+  version~ : @header.WarcVersion = @header.Warc1_1,
+  level~ : Int32 = 6,
+) -> Bytes {
+  let recs = build_http_exchange(
+    request_id~,
+    response_id~,
+    metadata_id?,
+    date~,
+    target_uri~,
+    request_bytes~,
+    response_bytes~,
+    metadata_bytes?,
+    version~,
+  )
+  encode_all_gz(recs, auto_digest=true, level~)
+}

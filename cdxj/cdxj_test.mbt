@@ -304,4 +304,41 @@ test "cdxj tie-breaking is deterministic when records share surt, timestamp, and
   assert_eq(forward, reverse)
   assert_eq(forward.get(0).unwrap().warc_type, "resource")
   assert_eq(forward.get(1).unwrap().warc_type, "response")
+  assert_false(forward.is_empty())
+  assert_eq(forward.get(-1), None)
+  assert_eq(forward.get(99), None)
+  assert_true(@cdxj.CdxjIndex::from_entries([]).is_empty())
+  assert_true(
+    @cdxj.parse_line(
+      "org,example)/null 20261126010000 {\"url\":\"https://example.org/null\",\"status\":null,\"length\":10,\"offset\":0}",
+    )
+    is Ok(_),
+  )
+  assert_true(
+    @cdxj.parse_line(
+      "org,example)/badstatus 20261126010000 {\"url\":\"https://example.org/badstatus\",\"status\":9999999999999999,\"length\":10,\"offset\":0}",
+    )
+    is Err(@cdxj.InvalidJsonBlock(_)),
+  )
+  assert_eq(forward.lookup_exact("://invalid"), [])
+  assert_eq(
+    forward.lookup_closest("https://example.org/x", "20269999999999"),
+    forward.get(0),
+  )
+  assert_eq(
+    forward.lookup_closest("https://example.org/missing", "20261126010000"),
+    None,
+  )
+  let e_url_a = {
+    ..e_res,
+    url: "https://example.org/a",
+    digest: Some("sha256:cccc"),
+  }
+  let e_url_b = {
+    ..e_res,
+    url: "https://example.org/b",
+    digest: Some("sha256:aaaa"),
+  }
+  let tie = @cdxj.CdxjIndex::from_entries([e_url_b, e_url_a])
+  assert_eq(tie.get(0).unwrap().url, "https://example.org/a")
 }

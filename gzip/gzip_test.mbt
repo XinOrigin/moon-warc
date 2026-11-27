@@ -114,3 +114,49 @@ test "gzip fast-table dynamic Huffman and overlapping LZ77 distance round-trip" 
     assert_eq(@gzip.decompress(gz), Ok(payload))
   }
 }
+
+///|
+test "gzip scan_members and try_decompress_member handle NeedMoreInput, offsets, and header error branches" {
+  let m0 = @gzip.compress(b"member-zero", level=0)
+  let m1 = @gzip.compress(b"member-one-repeated-repeated", level=6)
+  let combined = m0 + m1
+  let offsets : Array[(Int64, Int64)] = []
+  assert_eq(
+    @gzip.scan_members(combined, fn(m) {
+      offsets.push((m.compressed_offset, m.compressed_length))
+    }),
+    Ok(2L),
+  )
+  assert_eq(offsets, [
+    (0L, m0.length().to_int64()),
+    (m0.length().to_int64(), m1.length().to_int64()),
+  ])
+
+  // Truncated prefixes must return NeedMoreInput instead of hard failure
+  for cut in [0, 5, 9, m0.length() - 1] {
+    assert_true(@gzip.try_decompress_member(m0[0:cut]) is @gzip.NeedMoreInput)
+  }
+
+  // Invalid CM != 8, reserved FLG bit, FHCRC16 mismatch, and ISIZE mismatch
+  let bad_cm = b"\x1f\x8b\x09\x00\x00\x00\x00\x00\x00\x03\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  assert_true(
+    @gzip.try_decompress_member(bad_cm) is @gzip.Failed(@gzip.InvalidHeader(_)),
+  )
+  let bad_flg = b"\x1f\x8b\x08\xe0\x00\x00\x00\x00\x00\x03\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  assert_true(@gzip.decompress(bad_flg) is Err(@gzip.InvalidHeader(_)))
+  // FHCRC present (FLG=0x02) with bogus 16-bit header CRC
+  let bad_hcrc = b"\x1f\x8b\x08\x02\x00\x00\x00\x00\x00\x03\xde\xad\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  assert_true(@gzip.decompress(bad_hcrc) is Err(@gzip.ChecksumMismatch(_)))
+  // ISIZE mismatch (correct CRC32 for empty b"", wrong ISIZE=1)
+  let bad_isize = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x03\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00"
+  assert_true(@gzip.decompress(bad_isize) is Err(@gzip.SizeMismatch(_)))
+  // Reserved DEFLATE BTYPE=3 and Stored LEN/NLEN mismatch
+  let bad_btype3 = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x07\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  assert_true(
+    @gzip.decompress(bad_btype3) is Err(@gzip.InvalidDeflateStream(_)),
+  )
+  let bad_stored = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  assert_true(
+    @gzip.decompress(bad_stored) is Err(@gzip.InvalidDeflateStream(_)),
+  )
+}

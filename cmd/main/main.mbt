@@ -166,6 +166,66 @@ fn main {
       println(
         "Multi-member .warc.gz: members=\{gz_recs.length().to_string()} compressed=\{gz_wire.length().to_string()}B raw=\{raw.length().to_string()}B valid=\{gz_rep.is_valid().to_string()} cdxj=\{gz_idx.length().to_string()}",
       )
+      println("")
+      println("=== Streaming WarcGzReader & Crawler HTTP Exchange ===")
+      let mut gz_scanned = 0L
+      match
+        @warc.scan_archive_gz(gz_wire, fn(_r) { gz_scanned = gz_scanned + 1L }) {
+        Ok(cnt) =>
+          println(
+            "scan_archive_gz streamed=\{cnt.to_string()} records (\{gz_scanned.to_string()} emitted)",
+          )
+        Err(e) =>
+          println("scan_archive_gz failed: \{Debug::to_repr(e).to_string()}")
+      }
+      let gz_reader = @warc.new_gz_reader()
+      let chunked_recs = []
+      let mut gpos = 0
+      while gpos < gz_wire.length() {
+        let gend = if gpos + 17 > gz_wire.length() {
+          gz_wire.length()
+        } else {
+          gpos + 17
+        }
+        gz_reader.feed(gz_wire[gpos:gend])
+        while true {
+          match gz_reader.next_record() {
+            Ok(Some(r)) => chunked_recs.push(r)
+            Ok(None) => break
+            Err(e) => {
+              println("WarcGzReader failed: \{Debug::to_repr(e).to_string()}")
+              return
+            }
+          }
+        }
+        gpos = gend
+      }
+      let gz_finish_ok = gz_reader.finish() is Ok(_)
+      println(
+        "WarcGzReader (17B chunks): records=\{chunked_recs.length().to_string()} consumed=\{gz_reader.bytes_consumed().to_string()}B finish_ok=\{gz_finish_ok.to_string()}",
+      )
+      let ex_gz = @warc.record_http_exchange_gz(
+        request_id="<urn:uuid:cli-ex-req>",
+        response_id="<urn:uuid:cli-ex-resp>",
+        metadata_id="<urn:uuid:cli-ex-meta>",
+        date="2026-11-27T12:00:00Z",
+        target_uri="https://crawl.example.org/item",
+        request_bytes=b"GET /item HTTP/1.1\r\nHost: crawl.example.org\r\n\r\n",
+        response_bytes=b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok",
+        metadata_bytes=b"fetchTimeMs: 9\r\n",
+      )
+      match @warc.parse_archive_gz(ex_gz) {
+        Ok(ex_recs) => {
+          let ex_rep = @warc.validate_archive(ex_recs)
+          println(
+            "Crawler HTTP exchange .warc.gz: records=\{ex_recs.length().to_string()} compressed=\{ex_gz.length().to_string()}B valid=\{ex_rep.is_valid().to_string()}",
+          )
+        }
+        Err(e) =>
+          println(
+            "Crawler HTTP exchange failed: \{Debug::to_repr(e).to_string()}",
+          )
+      }
     }
   }
 }

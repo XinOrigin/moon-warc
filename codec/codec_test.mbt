@@ -409,3 +409,50 @@ test "encode_all_gz and parse_all_gz preserve payloads and exact per-member comp
   }
   assert_eq(expected_off, gz_wire.length().to_int64())
 }
+
+///|
+test "WarcGzReader and scan_all_gz enforce finish EOF, hard corrupt failures, and multi-record members" {
+  let recs = make_multi_type_records()
+  // Bundle 2 records into member 0 + remaining 4 into separate members
+  let member0 = @gzip.compress(@codec.encode_all([recs[0], recs[1]]), level=6)
+  let tail = @codec.encode_all_gz([recs[2], recs[3], recs[4], recs[5]])
+  let combined = member0 + tail
+
+  let expected = @codec.parse_all_gz(combined).unwrap()
+  assert_eq(expected.length(), 6)
+  assert_eq(expected[0].offset, 0L)
+  assert_eq(expected[1].offset, 0L)
+  assert_eq(expected[1].record_length, member0.length().to_int64())
+  assert_eq(expected[2].offset, member0.length().to_int64())
+
+  let scanned : Array[@codec.WarcRecord] = []
+  assert_eq(@codec.scan_all_gz(combined, fn(r) { scanned.push(r) }), Ok(6L))
+  assert_eq(scanned, expected)
+
+  let reader = @codec.WarcGzReader::new()
+  reader.feed(b"")
+  assert_eq(reader.next_record(), Ok(None))
+  assert_eq(reader.finish(), Ok(()))
+
+  // Truncated trailing bytes fail finish()
+  reader.feed(combined[0:combined.length() - 3])
+  while true {
+    match reader.next_record() {
+      Ok(Some(_)) => ()
+      Ok(None) => break
+      Err(_) => fail("unexpected error before EOF")
+    }
+  }
+  assert_eq(reader.next_record(), Ok(None))
+  assert_true(reader.finish() is Err(@codec.GzipError(_)))
+
+  // Corrupt magic after a valid member fails next_record immediately
+  let bad = member0 +
+    b"\x1f\x8b\x09\x00\x00\x00\x00\x00\x00\x03\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  assert_true(@codec.scan_all_gz(bad, fn(_) { () }) is Err(@codec.GzipError(_)))
+  let bad_reader = @codec.WarcGzReader::new()
+  bad_reader.feed(bad)
+  assert_true(bad_reader.next_record() is Ok(Some(_)))
+  assert_true(bad_reader.next_record() is Ok(Some(_)))
+  assert_true(bad_reader.next_record() is Err(@codec.GzipError(_)))
+}

@@ -156,4 +156,24 @@ test "WarcHeader rejects embedded empty lines, sanitizes CRLF serialization, and
   assert_true(
     @header.WarcDate::parse_cdxj_timestamp("20269999999999") is Err(_),
   )
+  let frac = @header.WarcDate::parse("0987-01-02T03:04:05.123456Z").unwrap()
+  assert_eq(frac.to_iso_string(), "0987-01-02T03:04:05.123456Z")
+  assert_true(@header.WarcDate::parse("0026-01-02T03:04:05Z") is Ok(_))
+  for
+    bad in [
+      "abcd-01-02T03:04:05Z", "2026-ab-02T03:04:05Z", "2026-01-xxT03:04:05Z", "2026-01-02Tab:04:05Z",
+      "2026-01-02T03:ab:05Z", "2026-01-02T03:04:abZ",
+    ] {
+    assert_true(@header.WarcDate::parse(bad) is Err(@header.InvalidDate(_)))
+  }
+  for
+    bad14 in [
+      "abcd0102030405", "2026ab02030405", "202601ab030405", "20260102ab0405", "2026010203ab05",
+      "202601020304ab",
+    ] {
+    assert_true(
+      @header.WarcDate::parse_cdxj_timestamp(bad14)
+      is Err(@header.InvalidDate(_)),
+    )
+  }
 }
