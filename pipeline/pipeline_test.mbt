@@ -853,3 +853,62 @@ test "ArchiveFilter rejects invalid 14-digit calendar dates and reassemble_segme
   })
   assert_true(jsonl_short.contains("\"text\":\"Hello\""))
 }
+
+///|
+test "export_jsonl omits revisit/continuation body text and build_wacz_manifests normalizes warc_filename" {
+  let rev = @codec.build_revisit(
+    record_id="<urn:uuid:rev-jsonl>",
+    date="2026-11-28T00:00:00Z",
+    target_uri="https://example.org/rev.txt",
+    profile="http://netpreserve.org/warc/1.1/revisit/identical-payload-digest",
+    payload_digest=@digest.format_warc_digest_sha256(b"body"),
+    payload=b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
+  )
+  let cont = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "continuation"),
+      ("WARC-Record-ID", "<urn:uuid:cont-jsonl>"),
+      ("WARC-Date", "2026-11-28T00:00:01Z"),
+      ("WARC-Target-URI", "https://example.org/rev.txt"),
+      ("WARC-Segment-Origin-ID", "<urn:uuid:orig>"),
+      ("WARC-Segment-Number", "2"),
+      ("Content-Type", "text/plain"),
+      ("Content-Length", "11"),
+    ],
+    b"raw-segment",
+  )
+  let jsonl = @pipeline.export_jsonl([rev, cont])
+  assert_false(jsonl.contains("\"text\":"))
+  assert_true(jsonl.contains("\"warc_type\":\"revisit\""))
+  assert_true(jsonl.contains("\"warc_type\":\"continuation\""))
+
+  let res = @codec.build_resource(
+    record_id="<urn:uuid:wacz-path-res>",
+    date="2026-11-28T00:00:02Z",
+    target_uri="https://example.org/doc.txt",
+    content_type="text/plain",
+    b"ok",
+  )
+  let gz = @codec.encode_all_gz([res])
+  let parsed = @codec.parse_all_gz(gz).unwrap()
+  let wacz_nested = @pipeline.build_wacz_manifests(
+    parsed,
+    gz,
+    warc_filename="archive/sub/crawl.warc.gz",
+  )
+  assert_true(
+    wacz_nested.datapackage_json.contains("\"path\":\"archive/crawl.warc.gz\""),
+  )
+  assert_true(wacz_nested.cdxj_text.contains("\"filename\":\"crawl.warc.gz\""))
+  let wacz_traversal = @pipeline.build_wacz_manifests(
+    parsed,
+    gz,
+    warc_filename="../..",
+  )
+  assert_true(
+    wacz_traversal.datapackage_json.contains(
+      "\"path\":\"archive/data.warc.gz\"",
+    ),
+  )
+}

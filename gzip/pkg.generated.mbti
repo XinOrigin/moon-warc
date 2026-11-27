@@ -20,6 +20,8 @@ pub fn inflate_raw(BytesView, start? : Int32, max_output_bytes? : Int32) -> Resu
 
 pub fn scan_members(BytesView, max_member_output_bytes? : Int32, (GzipMember) -> Unit) -> Result[Int64, GzipError]
 
+pub fn scan_members_while(BytesView, max_member_output_bytes? : Int32, (GzipMember) -> Bool) -> Result[Int64, GzipError]
+
 pub fn try_decompress_member(BytesView, base_offset? : Int64, max_member_output_bytes? : Int32) -> MemberStep
 
 // Errors

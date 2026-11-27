@@ -160,3 +160,73 @@ test "gzip scan_members and try_decompress_member handle NeedMoreInput, offsets,
     @gzip.decompress(bad_stored) is Err(@gzip.InvalidDeflateStream(_)),
   )
 }
+
+///|
+test "gzip level=6 emits Dynamic Huffman BTYPE=2 smaller than Fixed BTYPE=1 and falls back to Stored on incompressible input" {
+  // Repetitive 4-symbol / JSON-like WARC response benefits substantially from Dynamic Huffman (BTYPE=2)
+  let rep_buf = @buffer.Buffer(capacity=2048)
+  for i in 0..<40 {
+    rep_buf.write_bytesview(b"{\"id\":"[:])
+    rep_buf.write_bytesview(b"\"https://example.org/item/"[:])
+    rep_buf.write_byte((48 + i % 10).to_byte())
+    rep_buf.write_bytesview(b".html\",\"status\":200}\n"[:])
+  }
+  let rep_data = rep_buf.to_bytes()
+  let fixed_raw = @gzip.deflate_raw(rep_data, level=1)
+  let dyn_raw = @gzip.deflate_raw(rep_data, level=6)
+  assert_eq(fixed_raw[0].to_int() & 0x07, 3) // BFINAL=1, BTYPE=1
+  assert_eq(dyn_raw[0].to_int() & 0x07, 5) // BFINAL=1, BTYPE=2
+  assert_true(dyn_raw.length() < fixed_raw.length())
+  let gz_dyn = @gzip.compress(rep_data, level=6)
+  assert_eq(@gzip.decompress(gz_dyn), Ok(rep_data))
+
+  // Single-symbol (only 1 dist symbol after match) + uniform byte run
+  let single = Bytes::make(512, b'Z')
+  assert_eq(@gzip.decompress(@gzip.compress(single, level=6)), Ok(single))
+
+  // Pseudo-random incompressible 512B LCG input selects Stored (BTYPE=0) cleanly
+  let rand_bytes = Bytes::makei(512, i => {
+    let mut s = (i.reinterpret_as_uint() + 1U) * 747796405U + 2891336453U
+    s = (s ^ (s >> 16)) * 2246822519U
+    ((s >> 16) & 0xffU).to_byte()
+  })
+  let raw_rand = @gzip.deflate_raw(rand_bytes, level=6)
+  assert_eq(raw_rand[0].to_int() & 0x07, 1) // BFINAL=1, BTYPE=0 Stored
+  assert_eq(
+    @gzip.decompress(@gzip.compress(rand_bytes, level=6)),
+    Ok(rand_bytes),
+  )
+
+  // Long-distance (> 256B and > 4096B) match round-trip exercises dist_hi_lut + adaptive hash
+  let long_buf = @buffer.Buffer(capacity=6144)
+  long_buf.write_bytesview(
+    b"LONG-DIST-ANCHOR-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ!"[:],
+  )
+  for i in 0..<4200 {
+    long_buf.write_byte((65 + i * 7 % 26).to_byte())
+  }
+  long_buf.write_bytesview(
+    b"LONG-DIST-ANCHOR-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ!"[:],
+  )
+  let long_data = long_buf.to_bytes()
+  assert_eq(@gzip.decompress(@gzip.compress(long_data, level=6)), Ok(long_data))
+}
+
+///|
+test "gzip scan_members_while supports early stop and re-entrant decompress" {
+  let inner_gz = @gzip.compress(b"nested-payload-check", level=6)
+  let m0 = @gzip.compress(b"first-member-aaaaaaaaaaaaaaaaaaaa", level=6)
+  let m1 = @gzip.compress(b"second-member-bbbbbbbbbbbbbbbbbbb", level=6)
+  let stream = m0 + m1
+  let seen : Array[Bytes] = []
+  let inner_seen : Array[Result[Bytes, @gzip.GzipError]] = []
+  let res = @gzip.scan_members_while(stream, fn(m) {
+    // Re-entrant decompress inside active scan_members_while must not clobber scratch
+    inner_seen.push(@gzip.decompress(inner_gz))
+    seen.push(m.uncompressed)
+    false
+  })
+  assert_eq(res, Ok(1L))
+  assert_eq(seen, [b"first-member-aaaaaaaaaaaaaaaaaaaa"])
+  assert_eq(inner_seen, [Ok(b"nested-payload-check")])
+}

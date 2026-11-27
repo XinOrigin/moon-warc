@@ -323,7 +323,7 @@ pub fn reassemble_segments(
           )
         }
         let buf = @buffer.Buffer(capacity=rec.payload.length())
-        buf.write_bytes(rec.payload)
+        buf.write_bytesview(rec.payload[:])
         for i in 0..<segs.length() {
           let expected_seg = i + 2
           let (seg_num, cont_rec) = segs[i]
@@ -334,7 +334,7 @@ pub fn reassemble_segments(
               ),
             )
           }
-          buf.write_bytes(cont_rec.payload)
+          buf.write_bytesview(cont_rec.payload[:])
         }
         let full_payload = buf.to_bytes()
         for j in 0..<segs.length() {

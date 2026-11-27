@@ -197,32 +197,46 @@ fn BitReader::byte_offset_after_align(self : BitReader) -> Int32 {
 }
 
 ///|
-let huff_fast_bits : Int32 = 9
-
-///|
-let huff_fast_size : Int32 = 512
-
-///|
-let huff_fast_mask : UInt32 = 511U
-
-///|
 priv struct HuffmanTable {
   counts : FixedArray[Int32]
   symbols : FixedArray[Int32]
   fast : FixedArray[Int32]
+  fast_bits : Int32
+  fast_mask : UInt32
 }
 
 ///|
 let max_huff_bits : Int32 = 15
 
 ///|
-fn build_huffman(
+fn HuffmanTable::new_empty(max_syms : Int32, fast_bits : Int32) -> HuffmanTable {
+  let fast_size = 1 << fast_bits
+  {
+    counts: FixedArray::make(16, 0),
+    symbols: FixedArray::make(max_syms, 0),
+    fast: FixedArray::make(fast_size, 0),
+    fast_bits,
+    fast_mask: (fast_size - 1).reinterpret_as_uint(),
+  }
+}
+
+///|
+fn build_huffman_into(
   lengths : FixedArray[Int32],
+  offset : Int32,
   num_syms : Int32,
-) -> Result[HuffmanTable, GzipError] {
-  let counts = FixedArray::make(16, 0)
+  tbl : HuffmanTable,
+  offsets : FixedArray[Int32],
+  bl_code : FixedArray[Int32],
+) -> Result[Unit, GzipError] {
+  let counts = tbl.counts
+  for i in 0..<=max_huff_bits {
+    counts[i] = 0
+    offsets[i] = 0
+    bl_code[i] = 0
+  }
   for i in 0..<num_syms {
-    let l = lengths[i]
+    let l = lengths[offset + i]
     if l < 0 || l > max_huff_bits {
       return Err(InvalidDeflateStream("invalid Huffman code length"))
     }
@@ -237,22 +251,25 @@ fn build_huffman(
       return Err(InvalidDeflateStream("oversubscribed Huffman code tree"))
     }
   }
-  let offsets = FixedArray::make(16, 0)
-  let bl_code = FixedArray::make(16, 0)
   let mut c = 0
   for len in 1..<max_huff_bits {
     offsets[len + 1] = offsets[len] + counts[len]
     c = (c + counts[len]) << 1
     bl_code[len + 1] = c
   }
-  let symbols = FixedArray::make(num_syms, 0)
-  let fast = FixedArray::make(huff_fast_size, 0)
+  let symbols = tbl.symbols
+  let fast = tbl.fast
+  let fast_size = fast.length()
+  for i in 0..<fast_size {
+    fast[i] = 0
+  }
+  let fast_bits = tbl.fast_bits
   for sym in 0..<num_syms {
-    let l = lengths[sym]
+    let l = lengths[offset + sym]
     if l != 0 {
       symbols[offsets[l]] = sym
       offsets[l] = offsets[l] + 1
-      if l <= huff_fast_bits {
+      if l <= fast_bits {
         let msb_code = bl_code[l]
         bl_code[l] = msb_code + 1
         let mut rev = 0
@@ -264,14 +281,14 @@ fn build_huffman(
         let entry = (l << 16) | sym
         let step = 1 << l
         let mut slot = rev
-        while slot < huff_fast_size {
+        while slot < fast_size {
           fast[slot] = entry
           slot = slot + step
         }
       }
     }
   }
-  Ok({ counts, symbols, fast, })
+  Ok(())
 }
 
 ///|
@@ -286,7 +303,7 @@ fn decode_huffman(
     br.bit_buf = br.bit_buf | (b << br.bit_cnt)
     br.bit_cnt = br.bit_cnt + 8
   }
-  let entry = table.fast[(br.bit_buf & huff_fast_mask).reinterpret_as_int()]
+  let entry = table.fast[(br.bit_buf & table.fast_mask).reinterpret_as_int()]
   if entry != 0 {
     let len = entry >> 16
     if br.bit_cnt >= len {
@@ -331,12 +348,16 @@ fn build_fixed_tables() -> (HuffmanTable, HuffmanTable) {
     lit_lens[i] = 8
   }
   let dist_lens = FixedArray::make(32, 5)
-  let lit_tbl = match build_huffman(lit_lens, 288) {
-    Ok(t) => t
+  let offsets = FixedArray::make(16, 0)
+  let bl_code = FixedArray::make(16, 0)
+  let lit_tbl = HuffmanTable::new_empty(288, 9)
+  match build_huffman_into(lit_lens, 0, 288, lit_tbl, offsets, bl_code) {
+    Ok(_) => ()
     Err(_) => abort("fixed lit table build failed")
   }
-  let dist_tbl = match build_huffman(dist_lens, 32) {
-    Ok(t) => t
+  let dist_tbl = HuffmanTable::new_empty(32, 8)
+  match build_huffman_into(dist_lens, 0, 32, dist_tbl, offsets, bl_code) {
+    Ok(_) => ()
     Err(_) => abort("fixed dist table build failed")
   }
   (lit_tbl, dist_tbl)
@@ -375,8 +396,56 @@ let codelen_order : FixedArray[Int32] = [
 ]
 
 ///|
+priv struct InflateScratch {
+  cl_tbl : HuffmanTable
+  lit_tbl : HuffmanTable
+  dist_tbl : HuffmanTable
+  offsets : FixedArray[Int32]
+  bl_code : FixedArray[Int32]
+  cl_lens : FixedArray[Int32]
+  all_lens : FixedArray[Int32]
+  mut sink : ByteSink
+}
+
+///|
+fn InflateScratch::new() -> InflateScratch {
+  {
+    cl_tbl: HuffmanTable::new_empty(19, 7),
+    lit_tbl: HuffmanTable::new_empty(288, 9),
+    dist_tbl: HuffmanTable::new_empty(32, 8),
+    offsets: FixedArray::make(16, 0),
+    bl_code: FixedArray::make(16, 0),
+    cl_lens: FixedArray::make(19, 0),
+    all_lens: FixedArray::make(320, 0),
+    sink: ByteSink::new(4096),
+  }
+}
+
+///|
+fn InflateScratch::shrink_if_huge(self : InflateScratch) -> Unit {
+  if self.sink.buf.length() > 1048576 {
+    self.sink = ByteSink::new(32768)
+  } else {
+    self.sink.len = 0
+  }
+}
+
+///|
+priv struct InflateScratchSlot {
+  mut in_use : Bool
+  scratch : InflateScratch
+}
+
+///|
+let inflate_scratch_slot : InflateScratchSlot = {
+  in_use: false,
+  scratch: InflateScratch::new(),
+}
+
+///|
 fn read_dynamic_tables(
   br : BitReader,
+  sc : InflateScratch,
 ) -> Result[(HuffmanTable, HuffmanTable), GzipError] {
   let hlit = match br.read_bits(5) {
     Ok(v) => v + 257
@@ -393,7 +462,10 @@ fn read_dynamic_tables(
   if hlit > 286 || hdist > 30 {
     return Err(InvalidDeflateStream("invalid dynamic Huffman symbol counts"))
   }
-  let cl_lens = FixedArray::make(19, 0)
+  let cl_lens = sc.cl_lens
+  for i in 0..<19 {
+    cl_lens[i] = 0
+  }
   for i in 0..<hclen {
     let v = match br.read_bits(3) {
       Ok(b) => b
@@ -401,12 +473,13 @@ fn read_dynamic_tables(
     }
     cl_lens[codelen_order[i]] = v
   }
-  let cl_table = match build_huffman(cl_lens, 19) {
-    Ok(t) => t
+  match build_huffman_into(cl_lens, 0, 19, sc.cl_tbl, sc.offsets, sc.bl_code) {
+    Ok(_) => ()
     Err(e) => return Err(e)
   }
+  let cl_table = sc.cl_tbl
   let total = hlit + hdist
-  let all_lens = FixedArray::make(total, 0)
+  let all_lens = sc.all_lens
   let mut idx = 0
   while idx < total {
     let sym = match decode_huffman(br, cl_table) {
@@ -455,23 +528,24 @@ fn read_dynamic_tables(
   if all_lens[256] == 0 {
     return Err(InvalidDeflateStream("missing end-of-block symbol 256"))
   }
-  let lit_lens = FixedArray::make(hlit, 0)
-  for i in 0..<hlit {
-    lit_lens[i] = all_lens[i]
-  }
-  let dist_lens = FixedArray::make(hdist, 0)
-  for i in 0..<hdist {
-    dist_lens[i] = all_lens[hlit + i]
-  }
-  let lit_tbl = match build_huffman(lit_lens, hlit) {
-    Ok(t) => t
+  match
+    build_huffman_into(all_lens, 0, hlit, sc.lit_tbl, sc.offsets, sc.bl_code) {
+    Ok(_) => ()
     Err(e) => return Err(e)
   }
-  let dist_tbl = match build_huffman(dist_lens, hdist) {
-    Ok(t) => t
+  match
+    build_huffman_into(
+      all_lens,
+      hlit,
+      hdist,
+      sc.dist_tbl,
+      sc.offsets,
+      sc.bl_code,
+    ) {
+    Ok(_) => ()
     Err(e) => return Err(e)
   }
-  Ok((lit_tbl, dist_tbl))
+  Ok((sc.lit_tbl, sc.dist_tbl))
 }
 
 ///|
@@ -541,26 +615,25 @@ fn inflate_huffman_block(
 }
 
 ///|
-/// Decompresses an RFC 1951 DEFLATE stream starting at `start` inside `data`,
-/// returning `(decompressed_bytes, next_byte_offset_after_deflate)`.
-pub fn inflate_raw(
+fn inflate_raw_with_scratch(
   data : BytesView,
-  start~ : Int32 = 0,
-  max_output_bytes~ : Int32 = 67108864,
+  start : Int32,
+  max_output_bytes : Int32,
+  sc : InflateScratch,
 ) -> Result[(Bytes, Int32), GzipError] {
   let br = BitReader::new(data, start)
+  sc.sink.len = 0
+  let out = sc.sink
   let rem_in = data.length() - start
-  let init_cap = if rem_in > 0 {
+  if rem_in > 0 {
     let est = if rem_in > 536870911 { rem_in } else { rem_in * 2 }
-    if max_output_bytes >= 0 && est > max_output_bytes {
+    let target_cap = if max_output_bytes >= 0 && est > max_output_bytes {
       max_output_bytes
     } else {
       est
     }
-  } else {
-    256
+    out.ensure_extra(target_cap)
   }
-  let out = ByteSink::new(init_cap)
   let mut bfinal = 0
   while bfinal == 0 {
     bfinal = match br.read_bits(1) {
@@ -596,7 +669,7 @@ pub fn inflate_raw(
         Err(e) => return Err(e)
       }
     } else if btype == 2 {
-      let (lit_tbl, dist_tbl) = match read_dynamic_tables(br) {
+      let (lit_tbl, dist_tbl) = match read_dynamic_tables(br, sc) {
         Ok(t) => t
         Err(e) => return Err(e)
       }
@@ -611,4 +684,27 @@ pub fn inflate_raw(
   }
   let end_pos = br.byte_offset_after_align()
   Ok((out.to_bytes(), end_pos))
+}
+
+///|
+/// Decompresses an RFC 1951 DEFLATE stream starting at `start` inside `data`,
+/// returning `(decompressed_bytes, next_byte_offset_after_deflate)`.
+pub fn inflate_raw(
+  data : BytesView,
+  start~ : Int32 = 0,
+  max_output_bytes~ : Int32 = 67108864,
+) -> Result[(Bytes, Int32), GzipError] {
+  let owns_slot = !inflate_scratch_slot.in_use
+  let sc = if owns_slot {
+    inflate_scratch_slot.in_use = true
+    inflate_scratch_slot.scratch
+  } else {
+    InflateScratch::new()
+  }
+  let res = inflate_raw_with_scratch(data, start, max_output_bytes, sc)
+  if owns_slot {
+    sc.shrink_if_huge()
+    inflate_scratch_slot.in_use = false
+  }
+  res
 }

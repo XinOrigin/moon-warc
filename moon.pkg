@@ -6,3 +6,7 @@ import {
   "XinOrigin/moon_warc/header",
   "XinOrigin/moon_warc/pipeline",
 }
+
+import {
+  "moonbitlang/core/bench",
+} for "test"

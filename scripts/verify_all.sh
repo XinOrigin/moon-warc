@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PATH="$HOME/.moon/bin:$PATH"
+export PATH="/Users/xinorigin/.moon/bin:$PATH"
 
 echo "=== Toolchain ==="
 moon version --all
@@ -17,19 +17,22 @@ if [ -n "$(git ls-files --others --exclude-standard -- '*.mbti')" ]; then
   exit 1
 fi
 
-echo "=== Typecheck & Lint (moon check --deny-warn) ==="
-moon check --deny-warn
+echo "=== Strict Check (--deny-warn --target all) ==="
+moon check --deny-warn --target all
 
-echo "=== Tests (wasm, wasm-gc, js, native) ==="
-moon test --target wasm
-moon test --target wasm-gc
-moon test --target js
-moon test --target native
+echo "=== Strict Tests (--deny-warn --target all: wasm, wasm-gc, js, native) ==="
+moon test --deny-warn --target all
 
 if [ -f cmd/main/main.mbt ]; then
   echo "=== CLI Demo (native & js) ==="
   moon run cmd/main --target native
   moon run cmd/main --target js
+fi
+
+if [ -f examples/crawler_to_rag/main.mbt ]; then
+  echo "=== Example: crawler_to_rag (native & js) ==="
+  moon run examples/crawler_to_rag --target native
+  moon run examples/crawler_to_rag --target js
 fi
 
 if [ -f scripts/verify_oracle.py ]; then

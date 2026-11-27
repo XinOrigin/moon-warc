@@ -89,7 +89,7 @@ pub fn compress(data : BytesView, level~ : Int32 = 6) -> Bytes {
     },
   )
   out.write_byte(b'\xff')
-  out.write_bytes(deflated)
+  out.write_bytesview(deflated[:])
   write_u32_le(out, sum)
   write_u32_le(out, isize)
   out.to_bytes()
@@ -101,6 +101,7 @@ fn parse_member_at(
   member_start : Int32,
   base_offset : Int64,
   max_member_output_bytes : Int32,
+  sc : InflateScratch,
 ) -> MemberStep {
   let total_len = raw.length()
   let mut pos = member_start
@@ -166,7 +167,7 @@ fn parse_member_at(
     pos = pos + 2
   }
   let (uncompressed, deflate_end) = match
-    inflate_raw(raw, start=pos, max_output_bytes=max_member_output_bytes) {
+    inflate_raw_with_scratch(raw, pos, max_member_output_bytes, sc) {
     Ok(pair) => pair
     Err(UnexpectedEof(_)) => return NeedMoreInput
     Err(e) => return Failed(e)
@@ -220,7 +221,71 @@ pub fn try_decompress_member(
   base_offset~ : Int64 = 0L,
   max_member_output_bytes~ : Int32 = 67108864,
 ) -> MemberStep {
-  parse_member_at(raw, 0, base_offset, max_member_output_bytes)
+  let owns_slot = !inflate_scratch_slot.in_use
+  let sc = if owns_slot {
+    inflate_scratch_slot.in_use = true
+    inflate_scratch_slot.scratch
+  } else {
+    InflateScratch::new()
+  }
+  let step = parse_member_at(raw, 0, base_offset, max_member_output_bytes, sc)
+  if owns_slot {
+    sc.shrink_if_huge()
+    inflate_scratch_slot.in_use = false
+  }
+  step
+}
+
+///|
+/// Streams RFC 1952 Gzip members in `raw` one-by-one while `on_member` returns `true`,
+/// reusing scratch decompression tables across members and stopping early on `false`.
+pub fn scan_members_while(
+  raw : BytesView,
+  max_member_output_bytes~ : Int32 = 67108864,
+  on_member : (GzipMember) -> Bool,
+) -> Result[Int64, GzipError] {
+  let owns_slot = !inflate_scratch_slot.in_use
+  let sc = if owns_slot {
+    inflate_scratch_slot.in_use = true
+    inflate_scratch_slot.scratch
+  } else {
+    InflateScratch::new()
+  }
+  let total_len = raw.length()
+  let mut pos = 0
+  let mut count = 0L
+  let mut res : Result[Int64, GzipError] = Ok(0L)
+  while pos < total_len {
+    match parse_member_at(raw, pos, 0L, max_member_output_bytes, sc) {
+      Parsed(gz_m, next_pos) => {
+        count = count + 1L
+        pos = next_pos
+        if !on_member(gz_m) {
+          break
+        }
+      }
+      NeedMoreInput => {
+        res = Err(
+          UnexpectedEof(
+            "truncated RFC 1952 Gzip member at compressed offset \{pos.to_string()}",
+          ),
+        )
+        break
+      }
+      Failed(e) => {
+        res = Err(e)
+        break
+      }
+    }
+  }
+  if owns_slot {
+    sc.shrink_if_huge()
+    inflate_scratch_slot.in_use = false
+  }
+  match res {
+    Ok(_) => Ok(count)
+    Err(e) => Err(e)
+  }
 }
 
 ///|
@@ -231,26 +296,10 @@ pub fn scan_members(
   max_member_output_bytes~ : Int32 = 67108864,
   on_member : (GzipMember) -> Unit,
 ) -> Result[Int64, GzipError] {
-  let total_len = raw.length()
-  let mut pos = 0
-  let mut count = 0L
-  while pos < total_len {
-    match parse_member_at(raw, pos, 0L, max_member_output_bytes) {
-      Parsed(gz_m, next_pos) => {
-        on_member(gz_m)
-        pos = next_pos
-        count = count + 1L
-      }
-      NeedMoreInput =>
-        return Err(
-          UnexpectedEof(
-            "truncated RFC 1952 Gzip member at compressed offset \{pos.to_string()}",
-          ),
-        )
-      Failed(e) => return Err(e)
-    }
-  }
-  Ok(count)
+  scan_members_while(raw, max_member_output_bytes~, fn(gz_m) {
+    on_member(gz_m)
+    true
+  })
 }
 
 ///|
@@ -289,7 +338,7 @@ pub fn decompress(
   }
   let out = @buffer.Buffer(capacity=total_len.to_int())
   for m in members {
-    out.write_bytes(m.uncompressed)
+    out.write_bytesview(m.uncompressed[:])
   }
   Ok(out.to_bytes())
 }

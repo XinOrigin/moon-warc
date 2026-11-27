@@ -236,6 +236,7 @@ fn extract_body_text(
     return None
   }
   let body_bytes = match rec.header.warc_type() {
+    Some(@header.Revisit) | Some(@header.Continuation) => return None
     Some(@header.Response) =>
       match @http_payload.parse_http_response(rec.payload) {
         Ok(resp) =>

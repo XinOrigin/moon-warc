@@ -36,7 +36,17 @@ pub fn ValidationReport::is_valid(self : ValidationReport) -> Bool {
 ///|
 fn is_uri_angle_wrapped(s : String) -> Bool {
   let clean = s.trim().to_owned()
-  clean.length() >= 3 && clean.has_prefix("<") && clean.has_suffix(">")
+  let len = clean.length()
+  if len < 3 || !clean.has_prefix("<") || !clean.has_suffix(">") {
+    return false
+  }
+  for i in 1..<(len - 1) {
+    let code = clean[i].to_int()
+    if code <= 32 || code == 60 || code == 62 {
+      return false
+    }
+  }
+  true
 }
 
 ///|

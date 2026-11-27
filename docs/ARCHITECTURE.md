@@ -1,6 +1,6 @@
-# moon-warc Architecture Guide (`v0.4.0`)
+# moon-warc Architecture Guide (`v0.5.0`)
 
-`XinOrigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)** and **RFC 1951/1952 multi-member `.warc.gz`**, built as a layered **Sans-IO** protocol engine across 11 workspace packages (`moon.mod` version `0.4.0`, 35 `.mbt` files, **194/194 tests** passing across `wasm`, `wasm-gc`, `js`, and `native`).
+`XinOrigin/moon_warc` is a pure-MoonBit, zero-external-dependency implementation of **ISO 28500 (WARC 1.0 / 1.1)**, **Dynamic-Huffman RFC 1951/1952 multi-member `.warc.gz`**, and **WebRecorder WACZ 1.1.1** manifests, built as a layered **Sans-IO** protocol engine across 12 workspace packages (`moon.mod` version `0.5.0`, 38 `.mbt` files, **200/200 tests** across `wasm`, `wasm-gc`, `js`, and `native` + **5/5** `moon bench` native benchmarks).
 
 ---
 
@@ -9,10 +9,12 @@
 ```mermaid
 flowchart TD
   CMD["cmd/main (CLI Showcase)"] --> ROOT["moon_warc (Root Facade)"]
+  EX["examples/crawler_to_rag (End-to-End Example)"] --> ROOT
+  EX --> PIPE
   ROOT --> CODEC["codec (Sans-IO Stream Reader, Limits & .warc.gz)"]
   ROOT --> CDXJ["cdxj (Private Sorted Index & Binary Search)"]
   ROOT --> VAL["validate (22 Diagnostic Codes & Revisit Resolver)"]
-  ROOT --> PIPE["pipeline (ISO 28500 §9 Segmentation, Filter, CDX-11 & JSONL)"]
+  ROOT --> PIPE["pipeline (ISO 28500 §9, Filter, CDX-11, WACZ 1.1.1 & JSONL)"]
   ROOT --> HDR["header (WARC 1.0/1.1 Headers & UTC Date)"]
   ROOT --> DIG["digest (FIPS 180-4 SHA-1/256 & Base32/Hex)"]
 
@@ -36,7 +38,7 @@ flowchart TD
   CODEC --> HDR
   CODEC --> DIG
   CODEC --> HTTP
-  CODEC --> GZIP["gzip (RFC 1951 DEFLATE/LZ77, CRC-32 & RFC 1952)"]
+  CODEC --> GZIP["gzip (Dynamic-Huffman DEFLATE/LZ77, InflateScratch, CRC-32 & RFC 1952)"]
 
   GZIP --> CORE["moonbitlang/core (Zero External Deps)"]
   HDR --> CORE
@@ -48,26 +50,28 @@ flowchart TD
 ### ASCII Dependency View
 
 ```text
-                       +-----------------------+
-                       |   cmd/main (demo)     |
-                       +-----------+-----------+
-                                   |
-                       +-----------v-----------+
-                       | moon_warc (root API)  |
-                       +--+----+----+----+---+-+
-                          |    |    |    |   |
-        +-----------------+    |    |    |   +-----------------+
-        v                      v    v    v                     v
-+---------------+      +-------+  +-+--+ +----------+  +---------------+
-| pipeline (§9, |      | validate| |cdxj| |  codec   |  | digest / hdr  |
-| filter,export)|      +----+----+ +--+-+ +----+-----+  +-------+-------+
-+---+--+--+--+-+            |         |        |                |
-    |  |  |  +--------------+---------+--------+                |
-    |  |  |                 |         |        |                |
-    v  v  v                 v         v        v                v
- +--+--+--+-----------------+---------+--------+----------------+--+
- |       digest  |  header  |  http_payload  |  surt  |  core      |
- +-----------------------------------------------------------------+
+                +-----------------------+   +---------------------------+
+                |   cmd/main (demo)     |   | examples/crawler_to_rag   |
+                +-----------+-----------+   +-------------+-------------+
+                            |                             |
+                            +--------------+--------------+
+                                           |
+                               +-----------v-----------+
+                               | moon_warc (root API)  |
+                               +--+----+----+----+---+-+
+                                  |    |    |    |   |
+                +-----------------+    |    |    |   +-----------------+
+                v                      v    v    v                     v
+        +---------------+      +-------+  +-+--+ +----------+  +---------------+
+        | pipeline (§9, |      | validate| |cdxj| |  codec   |  | digest / hdr  |
+        | wacz, jsonl)  |      +----+----+ +--+-+ +----+-----+  +-------+-------+
+        +---+--+--+--+-+            |         |        |                |
+            |  |  |  +--------------+---------+--------+                |
+            |  |  |                 |         |        |                |
+            v  v  v                 v         v        v                v
+         +--+--+--+-----------------+---------+--------+----------------+--+
+         |     digest  |  gzip  |  header  |  http_payload  |  surt  | core|
+         +-----------------------------------------------------------------+
 ```
 
 Notice the strict **acyclic bottom-up** design:
@@ -92,10 +96,12 @@ flowchart LR
   EOF -->|"SeekHeader & available == 0"| OK["Ok(())"]
 ```
 
-### Memory & Offset Invariants
+### Memory, Scratch Reuse & Offset Invariants
 1. **Amortized Compaction & Header Scan Watermark (`WarcReader`)**: `WarcReader::compact_if_needed()` resets exhausted buffers immediately and only compacts non-empty buffers when `cursor >= 4096 && cursor >= remaining`, while `header_scan_pos` tracks the `\r\n\r\n` scan watermark across incremental `feed()` calls so large `parse_all()` buffers and multi-chunk streams avoid `O(n²)` copying or rescanning.
-2. **Constant-Member-Memory Streaming `.warc.gz` (`scan_all_gz` & `WarcGzReader`)**: `gzip::try_decompress_member` distinguishes truncated stream prefixes (`NeedMoreInput`) from hard corruption (`Failed(GzipError)`), enabling `WarcGzReader` (`new_gz_reader()`) to accumulate compressed bytes across arbitrary `1B`/`7B`/`17B`/`64B` chunks, emit records as soon as each RFC 1952 member finishes CRC-32/ISIZE validation, immediately slide/free completed member buffers, and track cumulative compressed `bytes_consumed() -> Int64`. `scan_archive_gz` provides a single-pass zero-array streaming variant over contiguous views.
-3. **Arbitrary Slice Independence**: `codec/fuzz_test.mbt`, `codec/codec_test.mbt`, and `moon_warc_test.mbt` verify identical decoded records, `Int64` byte offsets, and `record_length` values across plain chunks and compressed `.warc.gz` chunks (`1B`, `2B`, `3B`, `5B`, `7B`, `13B`, `17B`, `32B`, `64B`).
+2. **Zero-Allocation Dynamic Huffman & `InflateScratch` (`gzip/deflate.mbt`, `gzip/inflate.mbt`, `gzip/gzip.mbt`)**:
+   - **Encoding (`deflate_raw`)**: Uses module-level O(1) packed LUTs (`len_packed_lut`, `dist_lo_lut`, `dist_hi_lut`), an adaptive-sized LZ77 hash chain (`1024` / `4096` / `32768`), and a reusable `DeflateScratch` (`in_use` re-entrancy guard) running flat insertion sort + Van Leeuwen two-queue Huffman tree construction + exact Kraft `max_bits` (`15`/`7`) clamping; selects exact minimum-bit-cost output among Dynamic (`BTYPE=2`), Fixed (`BTYPE=1`), and Stored (`BTYPE=0`) before invoking `BitWriter` once.
+   - **Decoding (`inflate_raw` / `scan_members_while` / `WarcGzReader`)**: Reuses a single `InflateScratch` (`cl_tbl` 7-bit, `lit_tbl` 9-bit, `dist_tbl` 8-bit fast lookup tables + `ByteSink` shrinking >1 MiB buffers back to `32 KiB`) across all `.warc.gz` members in `scan_members_while` and `scan_all_gz`, falling back cleanly on re-entrant callbacks. `gzip::try_decompress_member` distinguishes truncated stream prefixes (`NeedMoreInput`) from hard corruption (`Failed(GzipError)`), enabling `WarcGzReader` (`new_gz_reader()`) to stream over arbitrary chunk splits while tracking cumulative compressed `bytes_consumed() -> Int64`.
+3. **Arbitrary Slice Independence**: `codec/fuzz_test.mbt`, `codec/codec_test.mbt`, `gzip/gzip_test.mbt`, and `moon_warc_test.mbt` verify identical decoded records, `Int64` byte offsets, and `record_length` values across plain chunks and compressed `.warc.gz` chunks (`1B`, `2B`, `3B`, `5B`, `7B`, `13B`, `17B`, `32B`, `64B`).
 4. **Crawler Exchange Capture (`record_http_exchange` / `record_http_exchange_gz`)**: Generates bidirectional `WARC-Concurrent-To` linked `request` + `response` (+ optional `metadata`) captures with automatic SHA-256 block & de-chunked HTTP entity payload digests.
 5. **Exact `Int64` Offset Tracking & Overflow Guard**: `total_consumed` / `compressed_consumed` track cumulative stream bytes using `checked_add_i64` (exceeding 2 GiB streams cleanly while rejecting `Int64` wraparound).
 
@@ -111,7 +117,7 @@ Both `codec::encode_record(..., auto_digest=true)` and `validate::validate_archi
 
 ---
 
-## 4. ISO 28500 §9 Segmentation, Filtering & Export Pipeline (`pipeline/`)
+## 4. ISO 28500 §9 Segmentation, Filtering, WACZ 1.1.1 & Export Pipeline (`pipeline/`)
 
 ```mermaid
 flowchart TD
@@ -126,13 +132,14 @@ flowchart TD
 
   WIRE --> FLT["filter_records / extract_subset(ArchiveFilter)"]
   WIRE --> CDX["export_cdx11 (CDX-11) & CdxjIndex (CDXJ)"]
+  WIRE --> WACZ["build_wacz_manifests (WACZ 1.1.1 datapackage + digests)"]
   WIRE --> JSONL["export_jsonl (RFC 8259 JSONL + UTF-8 entity text)"]
 ```
 
 ### Key Pipeline Guarantees
 1. **Digest Preservation Across Wire Re-Encoding**: `codec::encode_record` checks `if h.get("WARC-Segment-Number") is None` before recomputing `WARC-Payload-Digest` on `Response` records, ensuring segmented origin records retain their full logical entity digest while per-segment `Content-Length` and `WARC-Block-Digest` are recomputed automatically.
 2. **Validation Rules in `validate`**: `continuation` records require `<...>` wrapped `WARC-Segment-Origin-ID` (`MISSING_SEGMENT_ORIGIN_ID` / `INVALID_SEGMENT_ORIGIN_ID` Errors; `UNRESOLVED_SEGMENT_ORIGIN_ID` Warning if origin missing in stream) and `WARC-Segment-Number >= 2` (`INVALID_SEGMENT_NUMBER` Error). Segmented origin records (`WARC-Segment-Number: 1`) syntax-check `WARC-Payload-Digest`, delegating byte-level entity verification to `reassemble_segments()`.
-3. **LLM & Corpus Readiness (`export_jsonl`)**: Extracts de-chunked HTTP bodies or textual resource bodies (`text/*`, `application/json`, `application/xml`, `application/warc-fields`, `application/xhtml+xml`, `+json`, `+xml`), validates strict UTF-8 via `@utf8.decode`, safely truncates by Unicode scalar count (`max_body_chars`), escapes control characters per RFC 8259, and omits `"text"` cleanly on binary or non-UTF-8 payloads.
+3. **WebRecorder WACZ 1.1.1 & RAG Export (`build_wacz_manifests`, `export_jsonl`, `examples/crawler_to_rag`)**: Generates Frictionless Data `datapackage.json`, `datapackage-digest.json` (SHA-256 hex digest over `datapackage.json`), and `indexes/index.cdxj`; extracts de-chunked HTTP bodies or textual resource bodies (`text/*`, `application/json`, `application/xml`, `application/warc-fields`, `application/xhtml+xml`, `+json`, `+xml`), validates strict UTF-8 via `@utf8.decode`, safely truncates by Unicode scalar count (`max_body_chars`), escapes control characters per RFC 8259, and omits `"text"` cleanly on binary or non-UTF-8 payloads.
 
 ---
 

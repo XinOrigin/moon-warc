@@ -300,7 +300,7 @@ pub fn decode_chunked(raw : BytesView) -> Result[Bytes, HttpError] {
     if chunk_size == 0 {
       // Consume optional trailer lines until an empty CRLF line.
       while true {
-        if pos + 2 > len {
+        if len - pos < 2 {
           return Err(TruncatedChunkBody)
         }
         if raw[pos] == b'\r' && raw[pos + 1] == b'\n' {
@@ -313,12 +313,12 @@ pub fn decode_chunked(raw : BytesView) -> Result[Bytes, HttpError] {
         }
       }
     }
-    if pos + chunk_size > len {
+    if chunk_size < 0 || len - pos < chunk_size {
       return Err(TruncatedChunkBody)
     }
     out.write_bytesview(raw[pos:pos + chunk_size])
     pos = pos + chunk_size
-    if pos + 2 > len {
+    if len - pos < 2 {
       return Err(TruncatedChunkBody)
     }
     if raw[pos] != b'\r' || raw[pos + 1] != b'\n' {

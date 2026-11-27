@@ -1,6 +1,6 @@
 ///|
 test "root facade sample_archive_bytes parses, validates, indexes, resolves revisits, and round-trips" {
-  assert_eq(@moon_warc.library_version(), "0.4.0")
+  assert_eq(@moon_warc.library_version(), "0.5.0")
   let raw = @moon_warc.sample_archive_bytes()
   let records = match @moon_warc.parse_archive(raw) {
     Ok(recs) => recs
@@ -309,4 +309,20 @@ test "root facade record_http_exchange and record_http_exchange_gz produce valid
   )
   let single_gz = @moon_warc.encode_record_gz(recs[1])
   assert_eq(@moon_warc.parse_archive_gz(single_gz).unwrap().length(), 1)
+
+  let wacz = @moon_warc.build_wacz_manifests(
+    parsed,
+    gz,
+    warc_filename="exchange.warc.gz",
+    title="Exchange WACZ",
+    main_page_url="https://news.example.org/article",
+    main_page_date="2026-11-27T12:00:00Z",
+  )
+  assert_true(wacz.datapackage_json.contains("\"wacz_version\":\"1.1.1\""))
+  assert_true(wacz.datapackage_json.contains("\"archive/exchange.warc.gz\""))
+  assert_true(wacz.datapackage_json.contains("\"indexes/index.cdxj\""))
+  assert_true(
+    wacz.datapackage_digest_json.contains("\"path\":\"datapackage.json\""),
+  )
+  assert_true(wacz.cdxj_text.contains("org,example,news)/article"))
 }
