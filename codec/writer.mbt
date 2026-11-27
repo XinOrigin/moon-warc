@@ -243,9 +243,9 @@ pub fn encode_record(record : WarcRecord, auto_digest~ : Bool = true) -> Bytes {
   let out = @buffer.Buffer(
     capacity=hdr_bytes.length() + record.payload.length() + 4,
   )
-  out.write_bytes(hdr_bytes)
-  out.write_bytes(record.payload)
-  out.write_bytes(b"\r\n\r\n")
+  out.write_bytesview(hdr_bytes[:])
+  out.write_bytesview(record.payload[:])
+  out.write_bytesview(b"\r\n\r\n"[:])
   out.to_bytes()
 }
 
@@ -257,7 +257,7 @@ pub fn encode_all(
 ) -> Bytes {
   let out = @buffer.Buffer(capacity=1024)
   for rec in records {
-    out.write_bytes(encode_record(rec, auto_digest~))
+    out.write_bytesview(encode_record(rec, auto_digest~)[:])
   }
   out.to_bytes()
 }
@@ -283,7 +283,7 @@ pub fn encode_all_gz(
 ) -> Bytes {
   let out = @buffer.Buffer(capacity=1024)
   for rec in records {
-    out.write_bytes(encode_record_gz(rec, auto_digest~, level~))
+    out.write_bytesview(encode_record_gz(rec, auto_digest~, level~)[:])
   }
   out.to_bytes()
 }

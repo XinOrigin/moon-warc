@@ -1,4 +1,4 @@
-name: CI
+name: Check and Test
 
 on:
   push:
@@ -15,40 +15,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  check-all-targets:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install MoonBit
+        with:
+          persist-credentials: false
+      - name: Install MoonBit (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Install MoonBit (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Toolchain version
         run: moon version --all
-      - name: Lint (moon check --deny-warn)
-        run: moon check --deny-warn
-      - name: Format check
-        run: moon fmt --check
-      - name: Interface freshness (moon info)
+      - name: Strict check (--deny-warn --target all)
+        run: moon check --deny-warn --target all
+      - name: Format & interface check
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
+          moon fmt --check
           moon info
           git diff --exit-code -- '*.mbti'
           test -z "$(git ls-files --others --exclude-standard -- '*.mbti')"
-      - name: Test (wasm, wasm-gc, js, native)
+      - name: Strict tests (--deny-warn --target all)
+        run: moon test --deny-warn --target all
+      - name: Benchmarks sanity check
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: moon bench --release --target native
+      - name: Run CLI & Example (native & js)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
-          moon test --target wasm
-          moon test --target wasm-gc
-          moon test --target js
-          moon test --target native
-      - name: Run CLI demo if present
-        run: |
-          if [ -f cmd/main/main.mbt ]; then
-            moon run cmd/main --target native
-            moon run cmd/main --target js
-          fi
+          moon run cmd/main --target native
+          moon run cmd/main --target js
+          moon run examples/crawler_to_rag --target native
+          moon run examples/crawler_to_rag --target js
       - name: Differential Oracle (Python)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: python3 scripts/verify_oracle.py
       - name: Package archive stays clean
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
           moon package --list >pkg-list.txt 2>&1
           cat pkg-list.txt

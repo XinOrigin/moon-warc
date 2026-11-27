@@ -1,11 +1,11 @@
-# 设计问答与技术说明 / Design FAQ (`v0.4.0`)
+# 设计问答与技术说明 / Design FAQ (`v0.5.0`)
 
-本文档记录 `XinOrigin/moon-warc` 在架构选型、MoonBit 语义细节、`.warc.gz` 多成员设计、验证方法与 AI 使用披露上的 10 个常见问题。
+本文档记录 `XinOrigin/moon-warc` 在架构选型、MoonBit 语义细节、`.warc.gz` 多成员 Dynamic Huffman 设计、WACZ 1.1.1、验证方法与 AI 使用披露上的 10 个常见问题。
 
 ---
 
 ### Q1：为什么选择实现纯 MoonBit 的 ISO 28500 WARC 与 `.warc.gz` 解析与管线库？生态查重情况如何？
-- **生态定位与差异化**：MoonBit 生态中已有 `xiaojing012/moon-warc`（`0.1.0`），提供基础的 WARC/1.1 帧封装、校验、分段与内存索引，但源码明确注明暂未实现摘要计算（`digest` deferred）且未提供 `.warc.gz` 与导出管线。本项目在 `v0.3.0` 完整覆盖了 `WARC/1.0` 兼容、纯 MoonBit 增量 SHA-1/SHA-256 与 Base32/Hex 验真、多成员 RFC 1951/1952 `.warc.gz`、RFC 9112 Chunked HTTP 实体提取、SURT/CDXJ/CDX-11 词法序索引、`revisit` 溯源、§9 分片重组及 RFC 8259 JSONL 导出。
+- **生态定位与差异化**：MoonBit 生态中已有 `xiaojing012/moon-warc`（`0.1.0`），其 [`docs/limitations.md`](https://github.com/xiaojing012/moon-warc/blob/main/docs/limitations.md) 明确聚焦基础 `WARC/1.1` 帧解析，暂未实现 `.warc.gz`（Gzip/DEFLATE）、摘要计算（`SHA` deferred）、RFC 9112 Chunked 解码与导出管线。本项目在 `v0.5.0` 完整覆盖了 `WARC/1.0+1.1`、纯 MoonBit 增量 SHA-1/SHA-256 与 Base32/Hex 验真、多成员 Dynamic Huffman (`BTYPE=2`) `.warc.gz`、RFC 9112 Chunked HTTP 实体提取、SURT/CDXJ/CDX-11 词法序索引、`revisit` 溯源、§9 分片重组、WebRecorder WACZ 1.1.1 清单与 RFC 8259 JSONL 导出。
 - **真实需求**：WARC 与多成员 `.warc.gz` 是 Internet Archive、Common Crawl 及大模型预训练网页语料库的标准载体。主流工具链依赖 Python/Java/C++，而 `moon-warc` 零第三方依赖，一次编写可编译到 `wasm`、`wasm-gc`、`js` 与 `native` 运行（含纯前端 [`docs/index.html`](https://xinorigin.github.io/moon-warc/) 离线分析台）。
 
 ### Q2：核心解析器 `WarcReader` 为什么采用 Sans-IO 设计，如何防范超大文件与畸形流？
@@ -22,7 +22,7 @@
 
 ### Q5：`sha1` 和 `sha256` 在 `wasm` / `wasm-gc` / `js` / `native` 上如何保证比特级一致？
 - **确定性算术**：纯 MoonBit 实现的 FIPS 180-4 / RFC 3174 哈希器在 [`digest/sha1.mbt`](../digest/sha1.mbt) 与 [`digest/sha256.mbt`](../digest/sha256.mbt) 中显式使用 32/64 位无符号整型（`UInt32` / `UInt64`）和定长掩码位运算，完全规避 JS 53-bit float 精度截断及有符号右移语义差异。
-- **实测覆盖**：同一套包含密码学摘要、Fuzz 与负例的 **173 个测试用例**在四大编译目标全部跑通（`173/173 passed`），CLI 在 `--target native` 与 `--target js` 下的 stdout 字节级一致。
+- **实测覆盖**：同一套包含密码学摘要、Dynamic Huffman、Fuzz 与负例的 **196 个测试用例**在四大编译目标及 `Darwin arm64` / CNB `Linux x86_64` 双平台全部跑通（`196/196 passed` + **5/5 `moon bench`**），CLI 与 `examples/crawler_to_rag` 在 `--target native` 与 `--target js` 下的 stdout 字节级一致。
 
 ### Q6：ISO 28500 §9 分片记录（`WARC-Segment-Number`）是如何解决 `auto_digest` 冲突的？
 - 当一条超长 HTTP `response` 被 `segment_record` 切分为第 1 段（origin）和第 `2..N` 段（`continuation`）时，第 1 段的 `payload` 仅包含前 `max_segment_bytes` 字节，但协议要求其保留整个完整逻辑实体的 `WARC-Payload-Digest`。
@@ -38,11 +38,11 @@
 - 本地验收门禁 [`scripts/verify_all.sh`](../scripts/verify_all.sh) 每次运行都会执行 `moon package --list` 并使用正则断言**未泄漏任何非包源码文件**。
 
 ### Q9：如何回应大赛规则中的“AI 辅助编程必须可解释、可审查、可验证”？
-- **透明披露**：仓库根目录 [`AI_USAGE.md`](../AI_USAGE.md) 明确披露了 `v0.1.0`–`v0.2.0` 初始原型的高密度 AI 辅助过程，以及后续 `v0.2.1`–`v0.4.0` 的交叉审计、外部基线压测与实际拦错记录。
-- **跨后端、覆盖率与 Python 对照**：通过四编译目标全量测试（194 项）、`moon coverage analyze` 分支统计（核心库未覆盖行数自 `v0.3.1` 的 267 行降至 229 行），并在 `native` 探针下由 [`scripts/verify_oracle.py`](../scripts/verify_oracle.py) 调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip -9`、`json`）核对摘要、动态哈夫曼、流式 `scan_archive_gz`、7B 分片 `WarcGzReader` 及 HTTP 会话捕获。
+- **透明披露**：仓库根目录 [`AI_USAGE.md`](../AI_USAGE.md) 明确披露了 `v0.1.0`–`v0.2.0` 初始原型的高密度 AI 辅助过程，以及后续 `v0.2.1`–`v0.5.0` 的交叉审计、CNB `16C32G` Linux + 本地 macOS 双平台验证、`moonc v1.0.0-rc1` 弃用检查清理与真实拦错记录。
+- **跨后端、覆盖率与 Python 对照**：通过四编译目标全量测试（196 项）+ 5 项 `moon bench --release`、`moon coverage analyze` 分支统计（核心 10 库包未覆盖行数自 `v0.4.0` 的 `229` 行进一步降至 **`227`** 行），并在 `native` 探针下由 [`scripts/verify_oracle.py`](../scripts/verify_oracle.py) 调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip -9`、`json`）核对摘要、动态哈夫曼、流式 `scan_archive_gz`、7B 分片 `WarcGzReader`、HTTP 会话捕获与 WACZ 1.1.1 清单。
 - **公共契约固化**：通过 `moon info` 生成并跟踪各包 `pkg.generated.mbti` 接口文件，`v0.2.1+` 已将 `WarcReader`、`WarcGzReader`、`Sha1Hasher`、`Sha256Hasher` 与 `CdxjIndex` 内部可变字段收紧至包内私有。
 
-### Q10：多成员 `.warc.gz` 流式解码、爬虫对接与性能基准达到了什么水平？
-- **已全面交付 `v0.4.0`**：
-  1. **恒定成员内存流式 `.warc.gz`（`scan_archive_gz` + `WarcGzReader`）**：在 `v0.3.0` 实现多成员 DEFLATE/CRC-32 与 `v0.3.1` 9-bit 哈夫曼查表加速之后，`v0.4.0` 进一步补齐单遍零数组 `scan_archive_gz` 与任意字节分片增量解析器 `WarcGzReader`，使浏览器 `ReadableStream` / 爬虫网络流处理大体积 Common Crawl `.warc.gz` 时不再全量驻留内存。
-  2. **爬虫直录接口与外部基线**：新增 `record_http_exchange` / `record_http_exchange_gz`（自动互联 `WARC-Concurrent-To` 与双重 SHA-256 摘要），并在 [`docs/BENCHMARKS.md`](BENCHMARKS.md) 中完成四端（`native 112.39 MiB/s` · 达同机 C `zlib`+`hashlib` `196.11 MiB/s` 的 **57.3%**，`js 63.68 MiB/s`，`wasm-gc 52.03 MiB/s`，`wasm 47.78 MiB/s`）与生态对照，且保留纯前端离线巡检应用 [`docs/index.html`](https://xinorigin.github.io/moon-warc/)。
+### Q10：多成员 `.warc.gz` 流式解码、Dynamic Huffman 压缩与 WACZ/爬虫对接达到了什么水平？
+- **已全面交付 `v0.5.0`**：
+  1. **零分配 Dynamic Huffman (`BTYPE=2`) 与 `InflateScratch` 复用**：`deflate_raw(level >= 6)` 采用 O(1) 查找表、自适应哈希窗口、`DeflateScratch` 双队列+Kraft 限长哈夫曼构造，在 240 条多成员 `.warc.gz` 语料上将压缩体积从 `v0.4.0` 的 `136,056 B` (`84.3%`) 压降至 **`118,906 B` (`73.7%`)**（与 CPython `gzip -6` `118,547 B` 仅差 `359 B` / `0.3%`）；同时 `scan_members_while` + `InflateScratch` 复用使全流程在腾讯云 CNB `16C32G`（`Linux x86_64`, `moonc v1.0.0-rc1`）保持 **`native 76.26 MiB/s`**、**`wasm-gc 68.42 MiB/s`**、**`js 43.76 MiB/s`**、**`wasm 31.74 MiB/s`**。
+  2. **WACZ 1.1.1、爬虫直录接口与实战示例**：内置 `build_wacz_manifests` 生成 WACZ 1.1.1 的 `datapackage.json`、`datapackage-digest.json` 与 `indexes/index.cdxj`，配套 [`examples/crawler_to_rag/`](../examples/crawler_to_rag/) 端到端示例、[`moon_warc_bench_test.mbt`](../moon_warc_bench_test.mbt) 原生基准与离线浏览器工作台 [`docs/index.html`](https://xinorigin.github.io/moon-warc/)。

@@ -5,6 +5,24 @@ All notable changes to `XinOrigin/moon_warc` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-28
+
+### Added
+
+- **Zero-Allocation Dynamic Huffman (`BTYPE=2`) Compression & Reusable `InflateScratch` (`gzip/`, `codec/`)**:
+  - Upgraded `gzip/deflate.mbt` with O(1) length/distance lookup LUTs (`len_packed_lut`, `dist_lo_lut`, `dist_hi_lut`), adaptive LZ77 hash window (`1024`/`4096`/`32768`), reusable `DeflateScratch` (`in_use` guard), and Van Leeuwen two-queue Huffman construction with exact Kraft `max_bits` (`15`/`7`) clamping, choosing the exact minimum-bit block among Dynamic (`BTYPE=2`), Fixed (`BTYPE=1`), and Stored (`BTYPE=0`). Cut 240-record `.warc.gz` corpus size from `136,056 B` (`84.3%`) to **`118,906 B` (`73.7%`)** — within `359 B` (`0.3%`) of CPython `gzip -6` (`118,547 B`).
+  - Upgraded `gzip/inflate.mbt`, `gzip/gzip.mbt`, and `codec/reader.mbt` with parameterized-width `HuffmanTable` (`7`/`9`/`8` fast bits), reusable `InflateScratch` across Gzip members, and `@gzip.scan_members_while` early-stop streaming used by `scan_all_gz`, boosting CNB `16C32G` Linux `x86_64` steady throughput to **`76.26 MiB/s` `native`** and **`68.42 MiB/s` `wasm-gc`** with Dynamic Huffman enabled.
+- **WebRecorder WACZ 1.1.1 Manifest Generator (`pipeline/wacz.mbt`, `moon_warc.mbt`)**:
+  - Added `WaczManifests` and `build_wacz_manifests` generating `datapackage.json` (`wacz_version: "1.1.1"`), `datapackage-digest.json` (SHA-256 hex digest over `datapackage.json`), and `indexes/index.cdxj`.
+- **End-to-End Example, Native `moon bench` Suite & Multi-OS / Ecosystem Readiness**:
+  - Added runnable example [`examples/crawler_to_rag/`](examples/crawler_to_rag/) demonstrating HTTP crawler capture -> `WarcGzReader` -> WACZ 1.1.1 -> filtered LLM RAG JSONL (verified byte-identical on `native` & `js`).
+  - Added 5 `@bench.T` microbenchmarks in [`moon_warc_bench_test.mbt`](moon_warc_bench_test.mbt) (`moon bench --release --target native`, all 5 passing on macOS `arm64` & CNB Linux `x86_64`).
+  - Added strict 3-OS (`ubuntu`, `macos`, `windows`) workflow template in [`docs/ci.yml.example`](docs/ci.yml.example), explicit `xiaojing012/moon-warc@0.1.0` differentiation in [`README.mbt.md`](README.mbt.md), and WACZ + `examples/crawler_to_rag` oracle checks in [`scripts/verify_oracle.py`](scripts/verify_oracle.py) and [`scripts/verify_all.sh`](scripts/verify_all.sh).
+
+### Changed
+
+- **`moonc v1.0.0-rc1` Strict `--deny-warn` Compatibility (`codec/writer.mbt`, `gzip/`, `pipeline/segment.mbt`)**: Replaced all 14 deprecated `@buffer.Buffer::write_bytes` calls with `.write_bytesview(...[:])` caught by Tencent Cloud CNB `moon 0.1.20261126` (`v1.0.0-rc1`), ensuring clean `--deny-warn --target all` passes across both `0.10.22` and `1.0.0-rc1` with **196/196** tests passing (`12` packages, `38` `.mbt` files, **227** uncovered core library lines).
+
 ## [0.4.0] - 2026-11-27
 
 ### Added

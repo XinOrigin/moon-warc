@@ -1,7 +1,7 @@
 ///|
 /// Returns the library version string.
 pub fn library_version() -> String {
-  "0.4.0"
+  "0.5.0"
 }
 
 ///|
@@ -225,6 +225,27 @@ pub fn export_jsonl(
   options~ : @pipeline.JsonlOptions = @pipeline.JsonlOptions::default(),
 ) -> String {
   @pipeline.export_jsonl(records, options~)
+}
+
+///|
+/// Generates WebRecorder WACZ 1.1.1 specification manifests (`datapackage.json`,
+/// `datapackage-digest.json`, and `indexes/index.cdxj`) over `records` and `.warc.gz` bytes.
+pub fn build_wacz_manifests(
+  records : Array[@codec.WarcRecord],
+  warc_gz_bytes : BytesView,
+  warc_filename~ : String = "data.warc.gz",
+  title~ : String = "moon-warc archive",
+  main_page_url? : String,
+  main_page_date? : String,
+) -> @pipeline.WaczManifests {
+  @pipeline.build_wacz_manifests(
+    records,
+    warc_gz_bytes,
+    warc_filename~,
+    title~,
+    main_page_url?,
+    main_page_date?,
+  )
 }
 
 ///|

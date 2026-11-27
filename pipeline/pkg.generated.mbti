@@ -8,6 +8,8 @@ import {
 }
 
 // Values
+pub fn build_wacz_manifests(Array[@codec.WarcRecord], BytesView, warc_filename? : String, title? : String, main_page_url? : String, main_page_date? : String) -> WaczManifests
+
 pub fn export_cdx11(Array[@codec.WarcRecord], filename? : String, include_header? : Bool) -> String
 
 pub fn export_jsonl(Array[@codec.WarcRecord], options? : JsonlOptions) -> String
@@ -53,6 +55,13 @@ pub(all) enum PipelineError {
   OutOfOrderSegment(String)
   TotalLengthMismatch(String)
   PayloadDigestMismatch(String)
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) struct WaczManifests {
+  datapackage_json : String
+  datapackage_digest_json : String
+  cdxj_text : String
 }
 
 // Type aliases

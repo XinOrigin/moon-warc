@@ -217,7 +217,7 @@ def verify_cli_outputs() -> None:
         raise AssertionError("CLI stdout differs between native and js targets")
 
     required_markers = [
-        "moon-warc v0.4.0",
+        "moon-warc v0.5.0",
         "Sample archive size: 3188 bytes",
         "=== Records (6) ===",
         "type=warcinfo",
@@ -276,6 +276,21 @@ def verify_cli_outputs() -> None:
         parsed_keys.append((surt_key, ts, int(obj["offset"])))
     if parsed_keys != sorted(parsed_keys):
         raise AssertionError(f"CLI CDXJ entries are not sorted: {parsed_keys}")
+
+    ex_native = run_cmd(["moon", "run", "examples/crawler_to_rag", "--target", "native"], REPO_ROOT).stdout
+    ex_js = run_cmd(["moon", "run", "examples/crawler_to_rag", "--target", "js"], REPO_ROOT).stdout
+    if ex_native != ex_js:
+        raise AssertionError("Example crawler_to_rag stdout differs between native and js targets")
+    for marker in [
+        "moon-warc v0.5.0 Example:",
+        "records=5 valid=true errors=0",
+        "WACZ 1.1.1 datapackage bytes=",
+        "cdxj_entries=2",
+        '"text":"<html><body>MoonBit WARC</body></html>"',
+        '"text":"<html><body>MoonBit WARC v2</body></html>"',
+    ]:
+        if marker not in ex_native:
+            raise AssertionError(f"Missing expected example marker: {marker!r}")
 
 
 def run_differential_probe() -> None:
@@ -565,6 +580,7 @@ def run_differential_probe() -> None:
             '  "XinOrigin/moon_warc/http_payload",\n'
             '  "XinOrigin/moon_warc/gzip",\n'
             '  "XinOrigin/moon_warc/pipeline",\n'
+            '  "moonbitlang/core/encoding/utf8",\n'
             '}\n'
             'pkgtype(kind: "executable")\n',
             encoding="utf-8",
@@ -854,6 +870,18 @@ fn main {{
     }}
     Err(_) => println("EX_GZ_ERR")
   }}
+
+  let wacz = @warc.build_wacz_manifests(
+    recs_a,
+    mbt_gz_wire,
+    warc_filename="oracle-a.warc.gz",
+    title="Oracle WACZ",
+    main_page_url="https://example.org/hello",
+    main_page_date="2026-11-25T09:00:01Z",
+  )
+  println("WACZ_DP|" + wacz.datapackage_json)
+  println("WACZ_DD|" + wacz.datapackage_digest_json)
+  println("WACZ_CDX_HEX|" + @digest.hex_encode(@utf8.encode(wacz.cdxj_text)))
 }}
 '''
         (probe_dir / "main.mbt").write_text(main_mbt, encoding="utf-8")
@@ -1043,16 +1071,32 @@ fn main {{
     ex_plain = gzip.decompress(bytes.fromhex(ex_gz[3]))
     assert b"oracle-ex" in ex_plain and b"WARC-Concurrent-To: <urn:uuid:orac-ex-resp>" in ex_plain
 
+    # Verify v0.5.0 WACZ 1.1.1 manifests and SHA-256 digests against Python json + hashlib
+    wacz_dp_raw = by_prefix["WACZ_DP"][0].split("|", 1)[1]
+    wacz_dd_raw = by_prefix["WACZ_DD"][0].split("|", 1)[1]
+    wacz_cdx_bytes = bytes.fromhex(by_prefix["WACZ_CDX_HEX"][0].split("|", 1)[1])
+    dp = json.loads(wacz_dp_raw)
+    dd = json.loads(wacz_dd_raw)
+    assert dp["profile"] == "data-package" and dp["wacz_version"] == "1.1.1"
+    assert dp["resources"][0]["path"] == "archive/oracle-a.warc.gz"
+    assert dp["resources"][0]["bytes"] == len(mbt_gz_bytes)
+    assert dp["resources"][0]["hash"] == "sha256:" + hashlib.sha256(mbt_gz_bytes).hexdigest()
+    assert dp["resources"][1]["path"] == "indexes/index.cdxj"
+    assert dp["resources"][1]["bytes"] == len(wacz_cdx_bytes)
+    assert dp["resources"][1]["hash"] == "sha256:" + hashlib.sha256(wacz_cdx_bytes).hexdigest()
+    assert dd["path"] == "datapackage.json"
+    assert dd["hash"] == "sha256:" + hashlib.sha256(wacz_dp_raw.encode("utf-8")).hexdigest()
+
 
 def main() -> int:
     verify_cli_outputs()
     run_differential_probe()
     print(
-        "PYTHON ORACLE PASSED: CLI (native+js), SHA-1/SHA-256 Base32 digests, "
+        "PYTHON ORACLE PASSED: CLI + examples (native+js), SHA-1/SHA-256 Base32 digests, "
         "chunked HTTP, SURT/CDXJ, revisit resolution, folded headers, binary payloads, "
-        "byte-for-byte roundtrip, 6 negative archives, bidirectional Python gzip/.warc.gz, "
+        "byte-for-byte roundtrip, 6 negative archives, bidirectional Python gzip/.warc.gz (Dynamic Huffman), "
         "streaming scan_archive_gz & 7B-chunked WarcGzReader, HTTP exchange capture, "
-        "and v0.4.0 segmentation/subset/CDX-11/JSONL verified."
+        "WACZ 1.1.1 manifests, and v0.5.0 segmentation/subset/CDX-11/JSONL verified."
     )
     return 0
 

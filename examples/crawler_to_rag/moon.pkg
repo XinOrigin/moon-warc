@@ -1,0 +1,6 @@
+import {
+  "XinOrigin/moon_warc" @warc,
+  "XinOrigin/moon_warc/pipeline",
+}
+
+pkgtype(kind: "executable")

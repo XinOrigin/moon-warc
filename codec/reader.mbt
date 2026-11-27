@@ -575,44 +575,38 @@ pub fn scan_all_gz(
   on_record : (WarcRecord) -> Unit,
 ) -> Result[Int64, CodecError] {
   let max_member_out = max_member_output_for_limits(limits)
-  let total_len = raw.length()
-  let mut pos = 0
   let mut count = 0L
-  while pos < total_len {
-    match
-      @gzip.try_decompress_member(
-        raw[pos:total_len],
-        base_offset=pos.to_int64(),
-        max_member_output_bytes=max_member_out,
-      ) {
-      Parsed(m, rel_next) => {
-        match
-          scan_all(m.uncompressed, limits~, fn(rec) {
-            on_record({
-              header: rec.header,
-              payload: rec.payload,
-              offset: m.compressed_offset,
-              record_length: m.compressed_length,
-            })
-            count = count + 1L
-          }) {
-          Ok(_) => ()
-          Err(e) => return Err(e)
+  let mut err_opt : CodecError? = None
+  let gz_res = @gzip.scan_members_while(
+    raw,
+    max_member_output_bytes=max_member_out,
+    fn(m) {
+      match
+        scan_all(m.uncompressed, limits~, fn(rec) {
+          on_record({
+            header: rec.header,
+            payload: rec.payload,
+            offset: m.compressed_offset,
+            record_length: m.compressed_length,
+          })
+          count = count + 1L
+        }) {
+        Ok(_) => true
+        Err(e) => {
+          err_opt = Some(e)
+          false
         }
-        pos = pos + rel_next
       }
-      NeedMoreInput =>
-        return Err(
-          GzipError(
-            @gzip.UnexpectedEof(
-              "truncated RFC 1952 Gzip member at compressed offset \{pos.to_string()}",
-            ),
-          ),
-        )
-      Failed(e) => return Err(GzipError(e))
-    }
+    },
+  )
+  match err_opt {
+    Some(e) => Err(e)
+    None =>
+      match gz_res {
+        Ok(_) => Ok(count)
+        Err(e) => Err(GzipError(e))
+      }
   }
-  Ok(count)
 }
 
 ///|

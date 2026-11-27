@@ -12,6 +12,8 @@ import {
 // Values
 pub fn build_cdxj_index(Array[@codec.WarcRecord], filename? : String) -> @cdxj.CdxjIndex
 
+pub fn build_wacz_manifests(Array[@codec.WarcRecord], BytesView, warc_filename? : String, title? : String, main_page_url? : String, main_page_date? : String) -> @pipeline.WaczManifests
+
 pub fn encode_archive(Array[@codec.WarcRecord], auto_digest? : Bool) -> Bytes
 
 pub fn encode_archive_gz(Array[@codec.WarcRecord], auto_digest? : Bool, level? : Int32) -> Bytes
