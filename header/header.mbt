@@ -211,24 +211,35 @@ pub fn WarcHeader::get_all(
 }
 
 ///|
-/// Returns a new `WarcHeader` with `name` updated in-place if present or appended otherwise.
+/// Returns a new `WarcHeader` with `name` replaced across all matching fields or appended otherwise.
+/// Collapses duplicate fields matching `name` (case-insensitive after header-name sanitization).
 pub fn WarcHeader::with_field(
   self : WarcHeader,
   name : String,
   value : String,
 ) -> WarcHeader {
+  let clean_name = sanitize_header_name(name)
+  if clean_name.is_empty() {
+    return { version: self.version, fields: self.fields.copy(), }
+  }
   let next : Array[(String, String)] = []
   let mut replaced = false
   for pair in self.fields {
-    if !replaced && eq_ignore_ascii_case(pair.0, name) {
-      next.push((pair.0, value))
-      replaced = true
+    let pair_clean = sanitize_header_name(pair.0)
+    if pair_clean.is_empty() {
+      continue
+    }
+    if eq_ignore_ascii_case(pair_clean, clean_name) {
+      if !replaced {
+        next.push((clean_name, value))
+        replaced = true
+      }
     } else {
       next.push(pair)
     }
   }
   if !replaced {
-    next.push((name, value))
+    next.push((clean_name, value))
   }
   { version: self.version, fields: next, }
 }
@@ -239,9 +250,14 @@ pub fn WarcHeader::without_field(
   self : WarcHeader,
   name : StringView,
 ) -> WarcHeader {
+  let clean_name = sanitize_header_name(name)
+  if clean_name.is_empty() {
+    return { version: self.version, fields: self.fields.copy(), }
+  }
   let next : Array[(String, String)] = []
   for pair in self.fields {
-    if !eq_ignore_ascii_case(pair.0, name) {
+    let pair_clean = sanitize_header_name(pair.0)
+    if !eq_ignore_ascii_case(pair_clean, clean_name) {
       next.push(pair)
     }
   }
@@ -416,10 +432,11 @@ pub fn WarcHeader::segment_total_length(self : WarcHeader) -> Int64? {
 }
 
 ///|
-fn sanitize_header_name(name : String) -> String {
+fn sanitize_header_name(name : StringView) -> String {
   let sb = StringBuilder()
   for ch in name {
-    if ch != '\r' && ch != '\n' && ch != ':' {
+    let c = ch.to_int()
+    if c > 32 && c != 127 && ch != ':' {
       sb.write_char(ch)
     }
   }
@@ -430,7 +447,7 @@ fn sanitize_header_name(name : String) -> String {
 fn sanitize_header_value(value : String) -> String {
   let sb = StringBuilder()
   for ch in value {
-    if ch == '\r' || ch == '\n' {
+    if ch == '\r' || ch == '\n' || ch.to_int() == 0 {
       sb.write_char(' ')
     } else {
       sb.write_char(ch)

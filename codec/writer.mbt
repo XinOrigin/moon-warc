@@ -198,6 +198,18 @@ pub fn build_conversion(
 }
 
 ///|
+fn has_exact_single_content_length(
+  hdr : @header.WarcHeader,
+  expected_len : Int64,
+) -> Bool {
+  if hdr.parse_content_length() != Ok(expected_len) {
+    return false
+  }
+  let stripped = hdr.without_field("Content-Length")
+  hdr.fields.length() - stripped.fields.length() == 1
+}
+
+///|
 /// Serializes a single `WarcRecord` to ISO 28500 wire bytes.
 /// When `auto_digest` is true (default), updates `Content-Length`, `WARC-Block-Digest`,
 /// and (for HTTP `response` records) `WARC-Payload-Digest` using SHA-256 Base32.
@@ -220,9 +232,9 @@ pub fn encode_record(record : WarcRecord, auto_digest~ : Bool = true) -> Bytes {
                     "WARC-Payload-Digest",
                     @digest.format_warc_digest_sha256(entity),
                   )
-                Err(_) => ()
+                Err(_) => h = h.without_field("WARC-Payload-Digest")
               }
-            Err(_) => ()
+            Err(_) => h = h.without_field("WARC-Payload-Digest")
           }
         }
       Some(@header.Resource) =>
@@ -237,12 +249,22 @@ pub fn encode_record(record : WarcRecord, auto_digest~ : Bool = true) -> Bytes {
     }
     h
   } else {
-    record.header
+    let expected_len = record.payload.length().to_int64()
+    if has_exact_single_content_length(record.header, expected_len) {
+      record.header
+    } else {
+      record.header.with_field(
+        "Content-Length",
+        record.payload.length().to_string(),
+      )
+    }
   }
   let hdr_bytes = hdr.serialize()
-  let out = @buffer.Buffer(
-    capacity=hdr_bytes.length() + record.payload.length() + 4,
-  )
+  let cap64 = hdr_bytes.length().to_int64() +
+    record.payload.length().to_int64() +
+    4L
+  let cap = if cap64 > 2147483647L { 2147483647 } else { cap64.to_int() }
+  let out = @buffer.Buffer(capacity=cap)
   out.write_bytesview(hdr_bytes[:])
   out.write_bytesview(record.payload[:])
   out.write_bytesview(b"\r\n\r\n"[:])

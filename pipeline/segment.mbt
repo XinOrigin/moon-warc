@@ -22,6 +22,20 @@ fn derive_continuation_id(origin_id : String, seg_num : Int32) -> String {
 }
 
 ///|
+fn next_segment_end(
+  pos : Int32,
+  max_segment_bytes : Int32,
+  total : Int32,
+) -> Int32 {
+  let rem = total - pos
+  if max_segment_bytes < rem {
+    pos + max_segment_bytes
+  } else {
+    total
+  }
+}
+
+///|
 fn compute_logical_payload_digest(record : @codec.WarcRecord) -> String? {
   match record.header.payload_digest() {
     Some(pd) => Some(pd)
@@ -91,11 +105,7 @@ pub fn segment_record(
   let mut pos = max_segment_bytes
   let mut seg_num = 2
   while pos < total {
-    let end = if pos + max_segment_bytes < total {
-      pos + max_segment_bytes
-    } else {
-      total
-    }
+    let end = next_segment_end(pos, max_segment_bytes, total)
     let slice = record.payload[pos:end].to_owned()
     let fields : Array[(String, String)] = [
       ("WARC-Type", "continuation"),

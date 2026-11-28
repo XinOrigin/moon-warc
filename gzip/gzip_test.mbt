@@ -230,3 +230,53 @@ test "gzip scan_members_while supports early stop and re-entrant decompress" {
   assert_eq(seen, [b"first-member-aaaaaaaaaaaaaaaaaaaa"])
   assert_eq(inner_seen, [Ok(b"nested-payload-check")])
 }
+
+///|
+test "gzip enforces aggregate max_output_bytes across multi-member stream and rejects invalid inflate start" {
+  assert_eq(@gzip.decompress(b""), Ok(b""))
+  let m10_a = @gzip.compress(Bytes::make(10, b'A'), level=6)
+  let m10_b = @gzip.compress(Bytes::make(10, b'B'), level=6)
+  assert_eq(
+    @gzip.decompress(m10_a + m10_b, max_output_bytes=20),
+    Ok(Bytes::make(10, b'A') + Bytes::make(10, b'B')),
+  )
+  assert_true(
+    @gzip.decompress(m10_a + m10_b, max_output_bytes=19)
+    is Err(@gzip.LimitExceeded(_)),
+  )
+
+  // 8 x 100 KiB members stay individually below 256 KiB limit, but must abort mid-member at aggregate cap
+  let m100k = @gzip.compress(Bytes::make(102400, b'Z'), level=6)
+  let mut bomb = b""
+  for _ in 0..<8 {
+    bomb = bomb + m100k
+  }
+  assert_true(
+    @gzip.decompress(bomb, max_output_bytes=262144)
+    is Err(@gzip.LimitExceeded(_)),
+  )
+
+  let raw_def = @gzip.deflate_raw(b"hello", level=6)
+  assert_true(
+    @gzip.inflate_raw(raw_def, start=-1) is Err(@gzip.InvalidDeflateStream(_)),
+  )
+  assert_true(
+    @gzip.inflate_raw(raw_def, start=raw_def.length() + 1)
+    is Err(@gzip.InvalidDeflateStream(_)),
+  )
+}
+
+///|
+test "gzip handles >65535B multi-block Stored and >32KiB LZ77 window at level 0 and 6" {
+  let raw = Bytes::makei(70000, i => {
+    let mut s = (i.reinterpret_as_uint() + 1U) * 747796405U + 2891336453U
+    s = (s ^ (s >> 16)) * 2246822519U
+    ((s >> 16) & 0xffU).to_byte()
+  })
+  let anchor = b"WINDOW-32K-ANCHOR-0123456789ABCDEF"
+  let big = anchor + raw + anchor
+  for lvl in [0, 6] {
+    let gz = @gzip.compress(big, level=lvl)
+    assert_eq(@gzip.decompress(gz), Ok(big))
+  }
+}

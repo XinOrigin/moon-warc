@@ -6,6 +6,7 @@ from __future__ import annotations
 import atexit
 import os
 from pathlib import Path
+import pwd
 import shutil
 import subprocess
 import sys
@@ -15,12 +16,39 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TMP_PKG = "_bench_probe_tmp"
 
 
+def resolve_moon_bin() -> tuple[str | None, str | None]:
+    which_moon = shutil.which("moon")
+    if which_moon:
+        moon_bin = str(Path(which_moon).resolve().parent)
+        return moon_bin, str(Path(moon_bin).parent)
+    candidates: list[Path] = []
+    if os.environ.get("MOON_HOME"):
+        candidates.append(Path(os.environ["MOON_HOME"]))
+    candidates.append(Path.home() / ".moon")
+    try:
+        candidates.append(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".moon")
+    except KeyError:
+        pass
+    candidates.append(Path("/Users/xinorigin/.moon"))
+    for home_dir in candidates:
+        exe = home_dir / "bin" / "moon"
+        if exe.is_file() and os.access(exe, os.X_OK):
+            return str(exe.parent), str(home_dir)
+    return None, None
+
+
 def moon_env() -> dict[str, str]:
     env = os.environ.copy()
-    moon_bin = str(Path.home() / ".moon" / "bin")
+    moon_bin, moon_home = resolve_moon_bin()
+    if not moon_bin:
+        raise FileNotFoundError(
+            "Unable to locate 'moon' binary via PATH, MOON_HOME, HOME, or passwd home."
+        )
     parts = env.get("PATH", "").split(os.pathsep) if env.get("PATH") else []
     if moon_bin not in parts:
         env["PATH"] = moon_bin + os.pathsep + env.get("PATH", "")
+    if moon_home and "MOON_HOME" not in env:
+        env["MOON_HOME"] = moon_home
     return env
 
 

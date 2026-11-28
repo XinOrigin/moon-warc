@@ -912,3 +912,91 @@ test "export_jsonl omits revisit/continuation body text and build_wacz_manifests
     ),
   )
 }
+
+///|
+test "reassemble_segments rejects Response entity digest mismatch, duplicate origin ID, and non-numeric total length" {
+  let recs = make_pipeline_fixture()
+  let segs = @pipeline.segment_record(recs[2], max_segment_bytes=40).unwrap()
+  let last = segs.length() - 1
+  let tampered_payload = Bytes::makei(segs[last].payload.length(), i => {
+    if i == 0 {
+      (segs[last].payload[0].to_int() ^ 0x01).to_byte()
+    } else {
+      segs[last].payload[i]
+    }
+  })
+  let bad_body_segs = segs[0:last].to_owned()
+  bad_body_segs.push({ ..segs[last], payload: tampered_payload, })
+  assert_true(
+    @pipeline.reassemble_segments(bad_body_segs)
+    is Err(@pipeline.PayloadDigestMismatch(_)),
+  )
+
+  let bad_total = segs[0:last].to_owned()
+  bad_total.push({
+    ..segs[last],
+    header: segs[last].header.with_field("WARC-Segment-Total-Length", "abc"),
+  })
+  assert_true(
+    @pipeline.reassemble_segments(bad_total)
+    is Err(@pipeline.TotalLengthMismatch(_)),
+  )
+
+  assert_true(
+    @pipeline.reassemble_segments([segs[0], ..segs])
+    is Err(@pipeline.OutOfOrderSegment(_)),
+  )
+}
+
+///|
+test "build_wacz_manifests computes exact SHA-256 digests, byte sizes, metadata fields, and empty index" {
+  let res = @codec.build_resource(
+    record_id="<urn:uuid:wacz-check>",
+    date="2026-11-28T00:00:00Z",
+    target_uri="https://example.org/page.txt",
+    content_type="text/plain",
+    b"wacz-body",
+  )
+  let gz = @codec.encode_all_gz([res])
+  let parsed = @codec.parse_all_gz(gz).unwrap()
+  let wacz = @pipeline.build_wacz_manifests(
+    parsed,
+    gz,
+    warc_filename="crawl.warc.gz",
+    title="Crawl \"2026\"\nLine",
+    main_page_url="https://example.org/page.txt",
+    main_page_date="2026-11-28T00:00:00Z",
+  )
+  let dp_hash = "sha256:" +
+    @digest.hex_encode(@digest.sha256(@utf8.encode(wacz.datapackage_json)))
+  let gz_hash = "sha256:" + @digest.hex_encode(@digest.sha256(gz))
+  let cdx_bytes = @utf8.encode(wacz.cdxj_text)
+  let cdx_hash = "sha256:" + @digest.hex_encode(@digest.sha256(cdx_bytes))
+  assert_true(wacz.datapackage_digest_json.contains("\"hash\":\"\{dp_hash}\""))
+  assert_true(
+    wacz.datapackage_json.contains("\"title\":\"Crawl \\\"2026\\\"\\nLine\""),
+  )
+  assert_true(
+    wacz.datapackage_json.contains(
+      "\"mainPageUrl\":\"https://example.org/page.txt\"",
+    ),
+  )
+  assert_true(
+    wacz.datapackage_json.contains(
+      "\"hash\":\"\{gz_hash}\",\"bytes\":\{gz.length().to_string()}",
+    ),
+  )
+  assert_true(
+    wacz.datapackage_json.contains(
+      "\"hash\":\"\{cdx_hash}\",\"bytes\":\{cdx_bytes.length().to_string()}",
+    ),
+  )
+
+  let empty_wacz = @pipeline.build_wacz_manifests([], b"")
+  assert_eq(empty_wacz.cdxj_text, "")
+  assert_true(
+    empty_wacz.datapackage_json.contains(
+      "\"path\":\"indexes/index.cdxj\",\"hash\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"bytes\":0",
+    ),
+  )
+}

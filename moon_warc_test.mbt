@@ -1,6 +1,6 @@
 ///|
 test "root facade sample_archive_bytes parses, validates, indexes, resolves revisits, and round-trips" {
-  assert_eq(@moon_warc.library_version(), "0.5.0")
+  assert_eq(@moon_warc.library_version(), "0.5.1")
   let raw = @moon_warc.sample_archive_bytes()
   let records = match @moon_warc.parse_archive(raw) {
     Ok(recs) => recs
@@ -325,4 +325,55 @@ test "root facade record_http_exchange and record_http_exchange_gz produce valid
     wacz.datapackage_digest_json.contains("\"path\":\"datapackage.json\""),
   )
   assert_true(wacz.cdxj_text.contains("org,example,news)/article"))
+}
+
+///|
+test "root facade enforces ReaderLimits, rejects corrupt/truncated .warc.gz, and supports non-default params" {
+  let wire = @moon_warc.sample_archive_bytes()
+  let tight : @codec.ReaderLimits = {
+    max_header_bytes: 32,
+    max_payload_bytes: 16,
+  }
+  assert_true(
+    @moon_warc.parse_archive(wire, limits=tight) is Err(@codec.LimitExceeded(_)),
+  )
+  let recs = @moon_warc.parse_archive(wire).unwrap()
+  let gz = @moon_warc.encode_archive_gz(recs, auto_digest=false, level=0)
+  assert_true(
+    @moon_warc.parse_archive_gz(gz, limits=tight)
+    is Err(@codec.LimitExceeded(_)),
+  )
+  assert_true(
+    @moon_warc.scan_archive_gz(gz, limits=tight, fn(_) { () })
+    is Err(@codec.LimitExceeded(_)),
+  )
+  let bad_crc = gz[0:gz.length() - 8].to_owned() +
+    Bytes::makei(1, _ => (gz[gz.length() - 8].to_int() ^ 0x01).to_byte()) +
+    gz[gz.length() - 7:gz.length()].to_owned()
+  assert_true(@moon_warc.parse_archive_gz(bad_crc) is Err(@codec.GzipError(_)))
+  assert_true(
+    @moon_warc.scan_archive_gz(gz[0:gz.length() - 3], fn(_) { () })
+    is Err(@codec.GzipError(_)),
+  )
+  let r = @moon_warc.new_gz_reader()
+  r.feed(gz[0:gz.length() - 2])
+  while true {
+    match r.next_record() {
+      Ok(Some(_)) => ()
+      Ok(None) => break
+      Err(_) => fail("unexpected error before finish")
+    }
+  }
+  assert_true(r.finish() is Err(@codec.GzipError(_)))
+  let ex = @moon_warc.record_http_exchange(
+    request_id="<urn:uuid:v10-req>",
+    response_id="<urn:uuid:v10-resp>",
+    date="2026-11-28T00:00:00Z",
+    target_uri="https://example.org/v10",
+    request_bytes=b"GET /v10 HTTP/1.0\r\n\r\n",
+    response_bytes=b"HTTP/1.0 200 OK\r\n\r\nok",
+    version=@header.Warc1_0,
+  )
+  assert_eq(ex.length(), 2)
+  assert_eq(ex[0].header.version, @header.Warc1_0)
 }

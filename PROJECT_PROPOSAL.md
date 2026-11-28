@@ -4,8 +4,8 @@
 - 项目名称：`moon-warc`（包名 `XinOrigin/moon_warc`）
 - 参赛者：`XinOrigin`
 - 联系方式：GitHub @XinOrigin（技术交流走仓库 Issues，个人联系信息见报名表）
-- GitHub 仓库链接：https://github.com/XinOrigin/moon-warc （在线浏览器演示：https://xinorigin.github.io/moon-warc/ ，当前版本 `v0.5.0`）
-- 项目方向与通用性说明：协议解析 / 网页归档与大模型语料数据基础设施。ISO 28500 WARC 与多成员 `.warc.gz`、WACZ 1.1.1、CDXJ/SURT 是网页归档、爬虫快照与大模型网页语料清洗的通用标准格式；内核采用零第三方依赖的 Sans-IO 设计，仅依赖 `moonbitlang/core`，同一套代码编译覆盖 `wasm`、`wasm-gc`、`js` 和 `native` 四个目标，已在本地 macOS `arm64` 与腾讯云 CNB `16C32G` Linux `x86_64`（`moonc v1.0.0-rc1`）双平台通过 **200 项**四端 `--deny-warn` 测试、**5 项** `moon bench --release` 微基准、92.37 MiB 四端与 CPython `zlib`/`hashlib` 基线对照（Dynamic Huffman `BTYPE=2` 压缩 `118,906 B`，`native 76.26 MiB/s`、`wasm-gc 68.42 MiB/s`）与在线浏览器工作台验证。
+- GitHub 仓库链接：https://github.com/XinOrigin/moon-warc （在线浏览器演示：https://xinorigin.github.io/moon-warc/ ，当前版本 `v0.5.1`）
+- 项目方向与通用性说明：协议解析 / 网页归档与大模型语料数据基础设施。ISO 28500 WARC 与多成员 `.warc.gz`、WACZ 1.1.1、CDXJ/SURT 是网页归档、爬虫快照与大模型网页语料清洗的通用标准格式；内核采用零第三方依赖的 Sans-IO 设计，仅依赖 `moonbitlang/core`，同一套代码编译覆盖 `wasm`、`wasm-gc`、`js` 和 `native` 四个目标，已在本地 macOS `arm64` 与腾讯云 CNB `16C32G` Linux `x86_64`（`moonc v1.0.0-rc1`）双平台通过 **211 项**四端 `--deny-warn` 测试、**5 项** `moon bench --release` 微基准、92.37 MiB 四端与 CPython `zlib`/`hashlib` 基线对照（Dynamic Huffman `BTYPE=2` 压缩 `118,906 B`，`native 76.26 MiB/s`、`wasm-gc 68.42 MiB/s`）与在线浏览器工作台验证。
 - 原创与移植说明：原创项目，非移植项目，不涉及其他开源项目代码移植（无原移植项目名称与来源链接）；参照 ISO 28500:2009/2017、RFC 1951、RFC 1952、RFC 9112、FIPS 180-4、RFC 4648、SURT/CDXJ、WebRecorder WACZ 1.1.1、RFC 8259 从零设计与实现，采用 `Apache-2.0` 协议。
 
 ## 项目简介
@@ -17,7 +17,7 @@
 3. 归档入库审计与超大记录分片处理：通过 `validate_archive` 核验强制头、UTC 公历日期、去分块后真实 `WARC-Payload-Digest` 与 `revisit` 溯源，并对超长记录执行 §9 切分与回拼验真。
 
 ## 拟实现的核心功能与迭代完成情况
-截至 `v0.5.0`（12 个包，38 份 `.mbt` 源码），已全部交付并通过四端 **200 项测试**（197 单测/Fuzz/负例 + 3 `README.mbt.md` 可执行文档测试，核心 10 库包未覆盖行数降至 **227 行**）与 **5 项 `moon bench --release` 微基准**：
+截至 `v0.5.1`（12 个包，40 份 `.mbt` 源码），已全部交付并通过四端 **211 项测试**（208 单测/Fuzz/白盒/负例 + 3 `README.mbt.md` 可执行文档测试，全仓库未覆盖行数降至 **286 行**）与 **5 项 `moon bench --release` 微基准**：
 - 解析与序列化 ISO 28500 `WARC/1.0` / `WARC/1.1`、8 类标准类型、折叠头、CRLF 注入防护、严格闰年日期与 `Int64` >2 GiB 流偏移。
 - 双 Sans-IO 增量读取器（`WarcReader` + 压缩成员粒度 `WarcGzReader`）与零数组回调 `scan_archive` / `scan_archive_gz`；纯 MoonBit RFC 1951 DEFLATE（Stored `BTYPE=0` / Fixed `BTYPE=1` / 零分配 Dynamic Huffman `BTYPE=2`，压缩率 `73.7%` 逼近 C `gzip -6` `73.4%`）与 RFC 1952 `.warc.gz`（支持 `scan_members_while`、`FEXTRA`/`FNAME`/`FCOMMENT`/`FHCRC`、`max_output_bytes` 防护）及 `record_http_exchange_gz`。
 - 纯 MoonBit SHA-1/SHA-256 + RFC 9112 Chunked 解码、`String::lexical_compare` SURT/CDXJ/CDX-11、WebRecorder WACZ 1.1.1（`build_wacz_manifests`）、§9 分片重组、`export_jsonl`、`examples/crawler_to_rag`、3-OS [`docs/ci.yml.example`](docs/ci.yml.example)、Python 差分预言机与 [`AI_USAGE.md`](AI_USAGE.md) 透明披露。

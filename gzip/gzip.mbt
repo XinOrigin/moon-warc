@@ -19,7 +19,7 @@ pub(all) enum MemberStep {
 
 ///|
 fn read_u16_le_at(data : BytesView, pos : Int32) -> Result[Int32, GzipError] {
-  if pos + 2 > data.length() {
+  if pos < 0 || data.length() - pos < 2 {
     return Err(
       UnexpectedEof("unexpected EOF reading RFC 1952 u16 header field"),
     )
@@ -29,7 +29,7 @@ fn read_u16_le_at(data : BytesView, pos : Int32) -> Result[Int32, GzipError] {
 
 ///|
 fn read_u32_le_at(data : BytesView, pos : Int32) -> Result[UInt32, GzipError] {
-  if pos + 4 > data.length() {
+  if pos < 0 || data.length() - pos < 4 {
     return Err(UnexpectedEof("unexpected EOF reading RFC 1952 u32 trailer"))
   }
   let b0 = data[pos].to_uint()
@@ -69,7 +69,9 @@ pub fn compress(data : BytesView, level~ : Int32 = 6) -> Bytes {
   let deflated = deflate_raw(data, level~)
   let sum = crc32(data)
   let isize = data.length().reinterpret_as_uint()
-  let out = @buffer.Buffer(capacity=18 + deflated.length())
+  let cap64 = 18L + deflated.length().to_int64()
+  let cap = if cap64 > 2147483647L { 2147483647 } else { cap64.to_int() }
+  let out = @buffer.Buffer(capacity=cap)
   // RFC 1952 10-byte header: ID1 ID2 CM FLG MTIME(4) XFL OS
   out.write_byte(b'\x1f')
   out.write_byte(b'\x8b')
@@ -105,7 +107,7 @@ fn parse_member_at(
 ) -> MemberStep {
   let total_len = raw.length()
   let mut pos = member_start
-  if pos + 10 > total_len {
+  if pos < 0 || total_len - pos < 10 {
     return NeedMoreInput
   }
   if raw[pos] != b'\x1f' || raw[pos + 1] != b'\x8b' {
@@ -127,7 +129,7 @@ fn parse_member_at(
   }
   pos = pos + 10
   if (flg & 0x04) != 0 {
-    if pos + 2 > total_len {
+    if total_len - pos < 2 {
       return NeedMoreInput
     }
     let xlen = match read_u16_le_at(raw, pos) {
@@ -153,7 +155,7 @@ fn parse_member_at(
     }
   }
   if (flg & 0x02) != 0 {
-    if pos + 2 > total_len {
+    if total_len - pos < 2 {
       return NeedMoreInput
     }
     let expected_hcrc = match read_u16_le_at(raw, pos) {
@@ -322,23 +324,90 @@ pub fn decompress(
   raw : BytesView,
   max_output_bytes~ : Int32 = 67108864,
 ) -> Result[Bytes, GzipError] {
-  let members = match
-    decompress_members(raw, max_member_output_bytes=max_output_bytes) {
-    Ok(ms) => ms
-    Err(e) => return Err(e)
+  let total_in = raw.length()
+  if total_in == 0 {
+    return Ok(b"")
   }
+  let owns_slot = !inflate_scratch_slot.in_use
+  let sc = if owns_slot {
+    inflate_scratch_slot.in_use = true
+    inflate_scratch_slot.scratch
+  } else {
+    InflateScratch::new()
+  }
+  let release_slot = fn() {
+    if owns_slot {
+      sc.shrink_if_huge()
+      inflate_scratch_slot.in_use = false
+    }
+  }
+  let mut pos = 0
   let mut total_len = 0L
-  for m in members {
-    total_len = total_len + m.uncompressed.length().to_int64()
-    if max_output_bytes >= 0 && total_len > max_output_bytes.to_int64() {
+  let mut first_bytes : Bytes? = None
+  let mut out_buf : @buffer.Buffer? = None
+  while pos < total_in {
+    let rem64 = if max_output_bytes >= 0 {
+      max_output_bytes.to_int64() - total_len
+    } else {
+      2147483647L - total_len
+    }
+    if rem64 < 0L {
+      release_slot()
       return Err(
         LimitExceeded("total decompressed gzip output exceeds max_output_bytes"),
       )
     }
+    let member_limit = rem64.to_int()
+    match parse_member_at(raw, pos, 0L, member_limit, sc) {
+      Parsed(gz_m, next_pos) => {
+        pos = next_pos
+        total_len = total_len + gz_m.uncompressed.length().to_int64()
+        match (out_buf, first_bytes) {
+          (None, None) =>
+            if pos == total_in {
+              release_slot()
+              return Ok(gz_m.uncompressed)
+            } else {
+              first_bytes = Some(gz_m.uncompressed)
+            }
+          (None, Some(first)) => {
+            let cap64 = first.length().to_int64() +
+              gz_m.uncompressed.length().to_int64()
+            let cap = if cap64 > 2147483647L {
+              2147483647
+            } else {
+              cap64.to_int()
+            }
+            let buf = @buffer.Buffer(capacity=cap)
+            buf.write_bytesview(first[:])
+            buf.write_bytesview(gz_m.uncompressed[:])
+            first_bytes = None
+            out_buf = Some(buf)
+          }
+          (Some(buf), _) => buf.write_bytesview(gz_m.uncompressed[:])
+        }
+      }
+      NeedMoreInput => {
+        release_slot()
+        return Err(
+          UnexpectedEof(
+            "truncated RFC 1952 Gzip member at compressed offset \{pos.to_string()}",
+          ),
+        )
+      }
+      Failed(e) => {
+        release_slot()
+        return Err(e)
+      }
+    }
   }
-  let out = @buffer.Buffer(capacity=total_len.to_int())
-  for m in members {
-    out.write_bytesview(m.uncompressed[:])
+  release_slot()
+  match out_buf {
+    Some(buf) => Ok(buf.to_bytes())
+    None =>
+      match first_bytes {
+        Some(first) => Ok(first)
+        None => Ok(b"")
+      }
   }
-  Ok(out.to_bytes())
 }

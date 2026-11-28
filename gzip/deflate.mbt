@@ -183,7 +183,9 @@ fn encode_dist_packed(dist : Int32) -> Int32 {
 ///|
 fn deflate_stored(data : BytesView) -> Bytes {
   let total = data.length()
-  let bw = BitWriter::new(capacity=total + 16)
+  let cap64 = total.to_int64() + 16L
+  let cap = if cap64 > 2147483647L { 2147483647 } else { cap64.to_int() }
+  let bw = BitWriter::new(capacity=cap)
   if total == 0 {
     bw.write_bits_lsb(1, 1)
     bw.write_bits_lsb(0, 2)
@@ -198,7 +200,7 @@ fn deflate_stored(data : BytesView) -> Bytes {
   while pos < total {
     let rem = total - pos
     let blk_len = if rem > 65535 { 65535 } else { rem }
-    let is_final = if pos + blk_len >= total { 1 } else { 0 }
+    let is_final = if blk_len >= rem { 1 } else { 0 }
     bw.write_bits_lsb(is_final, 1)
     bw.write_bits_lsb(0, 2)
     bw.flush_bytes()
@@ -348,7 +350,7 @@ fn collect_lz77_tokens(
   while pos < total {
     let mut best_len = 0
     let mut best_dist = 0
-    if pos + 3 <= total {
+    if total - pos >= 3 {
       let h = hash3_masked(data, pos, hash_mask)
       let mut cand = head[h]
       prev[pos] = cand
@@ -384,13 +386,9 @@ fn collect_lz77_tokens(
       tok_l[tok_cnt] = l_packed
       tok_d[tok_cnt] = d_packed
       tok_cnt = tok_cnt + 1
-      let advance_end = if pos + best_len - 2 <= total {
-        pos + best_len
-      } else {
-        pos + 1
-      }
+      let advance_end = pos + best_len
       for p in (pos + 1)..<advance_end {
-        if p + 2 < total {
+        if total - p >= 3 {
           let hh = hash3_masked(data, p, hash_mask)
           prev[p] = head[hh]
           head[hh] = p

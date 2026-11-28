@@ -94,12 +94,17 @@ fn ByteSink::new(initial_cap : Int32) -> ByteSink {
 }
 
 ///|
-fn ByteSink::ensure_extra(self : ByteSink, extra : Int32) -> Unit {
-  if extra <= self.buf.length() - self.len {
-    return
+fn ByteSink::ensure_extra(
+  self : ByteSink,
+  extra : Int32,
+) -> Result[Unit, GzipError] {
+  if extra <= 0 || extra <= self.buf.length() - self.len {
+    return Ok(())
   }
   if extra > 2147483647 - self.len {
-    abort("ByteSink buffer overflow")
+    return Err(
+      LimitExceeded("decompressed DEFLATE stream exceeds 2 GiB buffer limit"),
+    )
   }
   let needed = self.len + extra
   let doubled = if self.buf.length() > 1073741823 {
@@ -113,15 +118,20 @@ fn ByteSink::ensure_extra(self : ByteSink, extra : Int32) -> Unit {
     next[i] = self.buf[i]
   }
   self.buf = next
+  Ok(())
 }
 
 ///|
-fn ByteSink::push_byte(self : ByteSink, b : Byte) -> Unit {
+fn ByteSink::push_byte(self : ByteSink, b : Byte) -> Result[Unit, GzipError] {
   if self.len >= self.buf.length() {
-    self.ensure_extra(1)
+    match self.ensure_extra(1) {
+      Ok(_) => ()
+      Err(e) => return Err(e)
+    }
   }
   self.buf[self.len] = b
   self.len = self.len + 1
+  Ok(())
 }
 
 ///|
@@ -130,16 +140,20 @@ fn ByteSink::push_slice(
   src : BytesView,
   start : Int32,
   n : Int32,
-) -> Unit {
+) -> Result[Unit, GzipError] {
   if n <= 0 {
-    return
+    return Ok(())
   }
-  self.ensure_extra(n)
+  match self.ensure_extra(n) {
+    Ok(_) => ()
+    Err(e) => return Err(e)
+  }
   let dst = self.len
   for i in 0..<n {
     self.buf[dst + i] = src[start + i]
   }
   self.len = dst + n
+  Ok(())
 }
 
 ///|
@@ -147,14 +161,18 @@ fn ByteSink::copy_match(
   self : ByteSink,
   dist : Int32,
   match_len : Int32,
-) -> Unit {
-  self.ensure_extra(match_len)
+) -> Result[Unit, GzipError] {
+  match self.ensure_extra(match_len) {
+    Ok(_) => ()
+    Err(e) => return Err(e)
+  }
   let dst = self.len
   let src = dst - dist
   for i in 0..<match_len {
     self.buf[dst + i] = self.buf[src + i]
   }
   self.len = dst + match_len
+  Ok(())
 }
 
 ///|
@@ -185,8 +203,15 @@ fn BitReader::read_aligned_bytes(
     )
   }
   out.push_slice(self.data, self.byte_pos, n)
-  self.byte_pos = self.byte_pos + n
-  Ok(())
+  |> res => {
+    match res {
+      Ok(_) => {
+        self.byte_pos = self.byte_pos + n
+        Ok(())
+      }
+      Err(e) => Err(e)
+    }
+  }
 }
 
 ///|
@@ -567,7 +592,10 @@ fn inflate_huffman_block(
           LimitExceeded("decompressed stream exceeds max_output_bytes limit"),
         )
       }
-      out.push_byte(sym.to_byte())
+      match out.push_byte(sym.to_byte()) {
+        Ok(_) => ()
+        Err(e) => return Err(e)
+      }
     } else if sym == 256 {
       return Ok(())
     } else {
@@ -608,7 +636,10 @@ fn inflate_huffman_block(
           LimitExceeded("decompressed stream exceeds max_output_bytes limit"),
         )
       }
-      out.copy_match(dist, match_len)
+      match out.copy_match(dist, match_len) {
+        Ok(_) => ()
+        Err(e) => return Err(e)
+      }
     }
   }
   Ok(())
@@ -621,18 +652,28 @@ fn inflate_raw_with_scratch(
   max_output_bytes : Int32,
   sc : InflateScratch,
 ) -> Result[(Bytes, Int32), GzipError] {
+  if start < 0 || start > data.length() {
+    return Err(
+      InvalidDeflateStream(
+        "invalid DEFLATE start offset \{start.to_string()} for buffer length \{data.length().to_string()}",
+      ),
+    )
+  }
   let br = BitReader::new(data, start)
   sc.sink.len = 0
   let out = sc.sink
   let rem_in = data.length() - start
   if rem_in > 0 {
-    let est = if rem_in > 536870911 { rem_in } else { rem_in * 2 }
+    let est = if rem_in > 32768 { 65536 } else { rem_in * 2 }
     let target_cap = if max_output_bytes >= 0 && est > max_output_bytes {
       max_output_bytes
     } else {
       est
     }
-    out.ensure_extra(target_cap)
+    match out.ensure_extra(target_cap) {
+      Ok(_) => ()
+      Err(e) => return Err(e)
+    }
   }
   let mut bfinal = 0
   while bfinal == 0 {

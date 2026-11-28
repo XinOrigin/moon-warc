@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PATH="/Users/xinorigin/.moon/bin:$PATH"
+if ! command -v moon >/dev/null 2>&1; then
+  REAL_HOME="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || echo "${HOME}")"
+  for cand in "${MOON_HOME:-}/bin" "${HOME}/.moon/bin" "${REAL_HOME}/.moon/bin" "/Users/xinorigin/.moon/bin"; do
+    if [ -x "${cand}/moon" ]; then
+      export PATH="${cand}:$PATH"
+      break
+    fi
+  done
+fi
 
 echo "=== Toolchain ==="
 moon version --all
@@ -41,12 +49,14 @@ if [ -f scripts/verify_oracle.py ]; then
 fi
 
 echo "=== Package Archive Hygiene (moon package --list) ==="
+trap 'rm -f pkg-list.txt' EXIT
 moon package --list >pkg-list.txt 2>&1
 cat pkg-list.txt
-if grep -E '^(scripts/|web_demo/|_build/|target/|\.github/|docs/|PROJECT_PROPOSAL\.md|AI_USAGE\.md|SUBMISSION_CHECKLIST\.md)' pkg-list.txt; then
+if grep -E '^(scripts/|web_demo/|_build/|target/|\.github/|docs/|PROJECT_PROPOSAL\.md|AI_USAGE\.md|SUBMISSION_CHECKLIST\.md|pkg-list\.txt$)|(\.DS_Store|\.tmp)$' pkg-list.txt; then
   echo "ERROR: non-package files leaked into moon package"
   exit 1
 fi
 rm -f pkg-list.txt
+trap - EXIT
 
 echo "=== ALL VERIFICATION GATES PASSED ==="

@@ -5,6 +5,21 @@ All notable changes to `XinOrigin/moon_warc` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-11-28
+
+### Fixed & Hardened
+
+- **Multi-Member Gzip Bomb & `>2 GiB` Truncation Guard (`gzip/gzip.mbt`)**: Rewrote `decompress` to stream members via `scan_members_while`-style `parse_member_at` iteration with cumulative `max_output_bytes` clamping (aborting *mid-member* before aggregate overflow, eliminating double-copy on single-member streams and `Int64::to_int()` wraparound when `max_output_bytes < 0`).
+- **Signed `Int32` Addition Overflow Guards (`gzip/gzip.mbt`, `gzip/deflate.mbt`, `pipeline/segment.mbt`)**: Replaced addition-based bounds checks (`pos + N > total`) with subtraction-based guards and `Int64`-clamped buffer capacities across `read_u16_le_at`, `read_u32_le_at`, `compress`, `parse_member_at`, `deflate_stored`, `collect_lz77_tokens`, and `segment_record::next_segment_end`.
+- **Inflate Entry Validation & Error Propagation (`gzip/inflate.mbt`)**: Rejected negative or out-of-bounds `start` offsets in `inflate_raw_with_scratch`, converted `ByteSink::ensure_extra` / `push_*` / `copy_match` from `abort()` panics to `Result[Unit, GzipError]` (`LimitExceeded`), and capped initial sink preallocation to `64 KiB` so large `.warc.gz` scans do not eagerly allocate `2 * remaining` bytes.
+- **WARC Header Name Sanitization & Folded Injection Defense (`header/header.mbt`)**: Sanitized whitespace (`<= 32`, `DEL`), `\r`, `\n`, and `:` consistently inside `WarcHeader::with_field`, `without_field`, and `serialize`, collapsed duplicate header names (preventing dual `Content-Length` smuggling), and stripped NUL bytes (`\u0000`) from header values.
+- **`encode_record` Wire Framing & Payload Digest Integrity (`codec/writer.mbt`)**: Synchronized `Content-Length` even under `auto_digest=false` whenever missing, duplicated, or mismatched with `payload.length()` (while preserving byte-for-byte identity for already-valid records), cleared stale `WARC-Payload-Digest` headers when `auto_digest=true` encounters corrupt HTTP `Response` payloads, and clamped `Buffer` preallocation via `Int64`.
+- **Verification Script Portability & Cross-Target Probe Parity (`scripts/`)**: Updated `scripts/verify_oracle.py`, `scripts/build_web_demo.py`, `scripts/run_benchmarks.py`, and `scripts/verify_all.sh` to resolve `moon` across `PATH`, `MOON_HOME`, `$HOME`, and `passwd` home directories, run `verify_oracle.py` differential probes on both `native` and `js`, and clean `pkg-list.txt` via `trap ... EXIT`.
+
+### Added
+
+- **P0/P1 Regression & Whitebox Unit-Test Suite (`gzip/gzip_wbtest.mbt`, `pipeline/segment_wbtest.mbt`, `*_test.mbt`)**: Expanded total verification suite from `200` to **`211/211` passing tests** (`12` packages, `40` `.mbt` files) covering multi-member Gzip aggregate bombs, negative `inflate_raw` offsets, near-`Int32::MAX` bounds, header smuggling/folding injection, `encode_record` frame smuggling, `WarcGzReader` multi-record incremental slicing, `reassemble_segments` `Response` entity mismatch, `build_wacz_manifests` SHA-256 verification, Base32 trailing-bit checks, and root-facade `ReaderLimits` / `.warc.gz` negative paths.
+
 ## [0.5.0] - 2026-11-28
 
 ### Added

@@ -177,3 +177,32 @@ test "WarcHeader rejects embedded empty lines, sanitizes CRLF serialization, and
     )
   }
 }
+
+///|
+test "WarcHeader with_field and without_field sanitize names, collapse duplicate Content-Length, and block folded header injection" {
+  let dirty = @header.WarcHeader::new(@header.Warc1_1, [
+    ("WARC-Type", "resource"),
+    ("WARC-Record-ID", "<urn:uuid:hdr-smuggle>"),
+    ("WARC-Date", "2026-11-28T00:00:00Z"),
+    ("Content-Length:", "999"),
+    ("Content-Length", "0"),
+    (" X-Fold", "injected\u0000line"),
+    ("\tTab-Fold", "val"),
+    (": \r\n", "drop-empty-name"),
+  ])
+  let updated = dirty.with_field("Content-Length", "5")
+  assert_eq(updated.get_all("Content-Length"), ["5"])
+  let wire = updated.serialize()
+  let txt = @utf8.decode_lossy(wire)
+  assert_false(txt.contains("999"))
+  assert_false(txt.contains("drop-empty-name"))
+  assert_false(txt.contains("\u0000"))
+  let reparsed = @header.WarcHeader::parse(wire[0:wire.length() - 4]).unwrap()
+  assert_eq(reparsed.get_all("Content-Length"), ["5"])
+  assert_eq(reparsed.get("X-Fold"), Some("injected line"))
+  assert_eq(reparsed.get("Tab-Fold"), Some("val"))
+
+  let stripped = dirty.without_field("Content-Length")
+  assert_eq(stripped.get_all("Content-Length"), [])
+  assert_eq(stripped.get_all("Content-Length:"), [])
+}

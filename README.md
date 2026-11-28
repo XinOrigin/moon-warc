@@ -1,7 +1,7 @@
 # moon-warc
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Version: v0.5.0](https://img.shields.io/badge/Version-v0.5.0-green.svg)](CHANGELOG.md)
+[![Version: v0.5.1](https://img.shields.io/badge/Version-v0.5.1-green.svg)](CHANGELOG.md)
 [![Targets: wasm | wasm-gc | js | native](https://img.shields.io/badge/Targets-wasm%20%7C%20wasm--gc%20%7C%20js%20%7C%20native-purple.svg)](#多目标验证矩阵与基准测试--verification--benchmarks)
 [![Live Offline Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-orange.svg)](https://xinorigin.github.io/moon-warc/)
 
@@ -9,7 +9,7 @@
 
 > **在线交互演示（100% 浏览器本地运行，零文件上传）：** [https://xinorigin.github.io/moon-warc/](https://xinorigin.github.io/moon-warc/)（源码位于 [`docs/index.html`](docs/index.html)，由 [`scripts/build_web_demo.py`](scripts/build_web_demo.py) 直接从 MoonBit JS 后端编译 [`docs/moon_warc_web.js`](docs/moon_warc_web.js) 生成）。
 >
-> **English Summary:** `XinOrigin/moon_warc` (`v0.5.0`) is a zero-dependency, pure-MoonBit library for reading, writing, compressing, indexing, segmenting, packaging (`WACZ 1.1.1`), exporting, and validating ISO 28500 WARC 1.0/1.1 streams and multi-member RFC 1952 `.warc.gz` archives. Targeting `wasm`, `wasm-gc`, `js`, and `native` identically, it includes executable doc-tests, `Int64` >2 GiB stream offsets, configurable `ReaderLimits`, zero-allocation Dynamic Huffman (`BTYPE=2`) DEFLATE encoding + reusable `InflateScratch` (`scan_members_while`), RFC 9112 chunked HTTP entity extraction, FIPS 180-4 SHA-1/SHA-256 + Base32/Hex digests, `String::lexical_compare` SURT/CDXJ/CDX-11 binary-search indexing, §9 segmentation/reassembly, WACZ 1.1.1 manifest generation, RFC 8259 JSONL export, native `moon bench` benchmarks, and a runnable `examples/crawler_to_rag` pipeline.
+> **English Summary:** `XinOrigin/moon_warc` (`v0.5.1`) is a zero-dependency, pure-MoonBit library for reading, writing, compressing, indexing, segmenting, packaging (`WACZ 1.1.1`), exporting, and validating ISO 28500 WARC 1.0/1.1 streams and multi-member RFC 1952 `.warc.gz` archives. Targeting `wasm`, `wasm-gc`, `js`, and `native` identically, it includes executable doc-tests, `Int64` >2 GiB stream offsets, configurable `ReaderLimits`, zero-allocation Dynamic Huffman (`BTYPE=2`) DEFLATE encoding + reusable `InflateScratch` (`scan_members_while`), RFC 9112 chunked HTTP entity extraction, FIPS 180-4 SHA-1/SHA-256 + Base32/Hex digests, `String::lexical_compare` SURT/CDXJ/CDX-11 binary-search indexing, §9 segmentation/reassembly, WACZ 1.1.1 manifest generation, RFC 8259 JSONL export, native `moon bench` benchmarks, and a runnable `examples/crawler_to_rag` pipeline.
 
 ---
 
@@ -164,22 +164,22 @@ test "readme: chunked WarcGzReader streaming, HTTP exchange capture, and WACZ 1.
 
 ## 生态对比与差异化说明 / MoonBit Ecosystem Differentiation
 
-`mooncakes.io` 既有同类库 `xiaojing012/moon-warc@0.1.0` 在其 [`docs/limitations.md`](https://github.com/xiaojing012/moon-warc/blob/main/docs/limitations.md) 中明确聚焦于基础 `WARC/1.1` 帧解析，尚未实现 `.warc.gz` 压缩/流式解码、加密摘要计算、HTTP 分块负载拆解与导出生态。`XinOrigin/moon_warc@0.5.0` 在保持零第三方依赖与 `Apache-2.0` 原创实现的基础上，补齐了完整的端到端生产能力：
+`mooncakes.io` 既有同类库 `xiaojing012/moon-warc@0.1.0` 在其 [`docs/limitations.md`](https://github.com/xiaojing012/moon-warc/blob/main/docs/limitations.md) 中明确聚焦于基础 `WARC/1.1` 帧解析，尚未实现 `.warc.gz` 压缩/流式解码、加密摘要计算、HTTP 分块负载拆解与导出生态。`XinOrigin/moon_warc@0.5.1` 在保持零第三方依赖与 `Apache-2.0` 原创实现的基础上，补齐了完整的端到端生产能力：
 
-| 维度 | `xiaojing012/moon-warc@0.1.0` (`mooncakes.io`) | `XinOrigin/moon_warc@0.5.0` (本仓库) |
+| 维度 | `xiaojing012/moon-warc@0.1.0` (`mooncakes.io`) | `XinOrigin/moon_warc@0.5.1` (本仓库) |
 | --- | --- | --- |
 | **WARC 版本与大文件边界** | `WARC/1.1` 基础记录解析 | **WARC 1.0 & 1.1**、严格闰年日历、`Int64` >2 GiB 流偏移、`ReaderLimits` 与 CRLF 注入防护 |
 | **`.warc.gz` 多成员流式编解码** | 不包含（未实现 Gzip/DEFLATE） | 纯 MoonBit **Dynamic Huffman (`BTYPE=2`)** 压缩、`scan_members_while` / `WarcGzReader` 恒定成员内存流式解码、`compressed_offset` 范围跟踪 |
 | **密码学摘要验真** | 文档注明 `SHA` 摘要计算延后（deferred） | 纯 MoonBit FIPS 180-4 **SHA-1 / SHA-256** + RFC 4648 Base32/Hex 增量自动签发与验真 |
 | **HTTP/1.x 载荷与 Chunked 解码** | 基础头分离 | 二进制安全分割（`obs-fold`、多头 `Transfer-Encoding`）+ 完整 **RFC 9112 Chunked** 解码 |
 | **检索、打包与 RAG 管线** | 基础内存索引与校验 | `String::lexical_compare` SURT/CDXJ `lookup_closest`、CDX-11、**WACZ 1.1.1 清单**、§9 分片重组、`revisit` 溯源、RFC 8259 JSONL |
-| **实战接入、基准与交互演示** | 库内基础单测 | 四端 **200/200 测试** + **`moon bench`**（**5/5**）+ Python 差分预言机 + CPython `zlib`/`hashlib` 基准 + **`examples/crawler_to_rag`** + 浏览器离线工作台 |
+| **实战接入、基准与交互演示** | 库内基础单测 | 四端 **211/211 测试** + **`moon bench`**（**5/5**）+ Python 差分预言机 + CPython `zlib`/`hashlib` 基准 + **`examples/crawler_to_rag`** + 浏览器离线工作台 |
 
 ---
 
 ## 作用域与非目标 / Scope & Non-Goals
 
-### 在范围内 (In Scope `v0.5.0`)
+### 在范围内 (In Scope `v0.5.1`)
 - ISO 28500:2009 (`WARC/1.0`) 与 ISO 28500:2017 (`WARC/1.1`) 全类型记录帧解析、编码、合规校验与 §9 分片重组。
 - 纯 MoonBit RFC 1951 DEFLATE（Stored `BTYPE=0` / Fixed `BTYPE=1` / Dynamic Huffman `BTYPE=2`）与 RFC 1952 **多成员 `.warc.gz`** 压缩、流式解压（`InflateScratch` 复用与 `scan_members_while`）、CRC-32/ISIZE 校验与压缩字节范围索引。
 - 纯 MoonBit SHA-1 / SHA-256、Base32 / Hex、HTTP/1.x Chunked 实体提取、SURT、CDXJ、11 列 CDX、`revisit` 溯源、**WebRecorder WACZ 1.1.1** 清单生成与 RFC 8259 JSONL 导出。
@@ -235,14 +235,14 @@ moon bench --release --target native
 
 ## 多目标验证矩阵与基准测试 / Verification & Benchmarks
 
-本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台（含 macOS `arm64` 与腾讯云 CNB `16 vCPU / 32 GiB` `Linux x86_64`）严格验证，共 **200 项**测试（197 个模块单元测试/Fuzz/负例 + **3 个 `README.mbt.md` 可执行文档测试**）+ **5 个 `moon bench` 原生基准**，覆盖全部 **12 个包 / 38 个 `.mbt` 源文件**（`moon coverage` 实测全仓库未覆盖 `295` 行 / `20` 文件，其中核心 10 库包仅 **`227` 行**未覆盖，其余 `68` 行为 `cmd/main` 与 `examples/crawler_to_rag` 演示二进制入口）：
+本仓库通过 [`scripts/verify_all.sh`](scripts/verify_all.sh) 在全部 4 个 MoonBit 目标平台（含 macOS `arm64` 与腾讯云 CNB `16 vCPU / 32 GiB` `Linux x86_64`）严格验证，共 **211 项**测试（208 个模块单元测试/Fuzz/白盒/负例 + **3 个 `README.mbt.md` 可执行文档测试**）+ **5 个 `moon bench` 原生基准**，覆盖全部 **12 个包 / 40 个 `.mbt` 源文件**（`moon coverage` 实测全仓库未覆盖降至 **`286` 行 / `20` 文件**）：
 
 | 编译目标 / 外部基线 / 门禁 | 实测结果 | 端到端稳态流水线吞吐 (`--release`, 腾讯云 CNB `16C32G` `AMD EPYC 9754`, Dynamic Huffman `BTYPE=2`, `92.37 MiB`) |
 | --- | --- | --- |
-| **`native`** (纯 MoonBit) | **200 / 200 passed** + **5/5 `moon bench`** | **`76.26 MiB/s`** (`steady 1.211 s`, `wall 1.235 s` · 压缩 `118,906 B` = **`73.7%`**) |
-| **`wasm-gc`** (纯 MoonBit) | **200 / 200 passed** | **`68.42 MiB/s`** (`steady 1.350 s`, `wall 1.393 s` · 压缩与 `native` 比特一致) |
-| **`js`** (纯 MoonBit) | **200 / 200 passed** | **`43.76 MiB/s`** (`steady 2.111 s`, `wall 2.217 s`) |
-| **`wasm`** (纯 MoonBit) | **200 / 200 passed** | **`31.74 MiB/s`** (`steady 2.910 s`, `wall 2.969 s`) |
+| **`native`** (纯 MoonBit) | **211 / 211 passed** + **5/5 `moon bench`** | **`76.26 MiB/s`** (`steady 1.211 s`, `wall 1.235 s` · 压缩 `118,906 B` = **`73.7%`**) |
+| **`wasm-gc`** (纯 MoonBit) | **211 / 211 passed** | **`68.42 MiB/s`** (`steady 1.350 s`, `wall 1.393 s` · 压缩与 `native` 比特一致) |
+| **`js`** (纯 MoonBit) | **211 / 211 passed** | **`43.76 MiB/s`** (`steady 2.111 s`, `wall 2.217 s`) |
+| **`wasm`** (纯 MoonBit) | **211 / 211 passed** | **`31.74 MiB/s`** (`steady 2.910 s`, `wall 2.969 s`) |
 | *外部基线*: CPython (`zlib` + `hashlib` C 扩展) | 同机同语料基线 | `184.19 MiB/s` (`0.501 s`, `gzip -6` `118,547 B` = **`73.4%`** · 与本库仅差 359 B / 0.3%) |
 | **CLI + 示例** (`cmd/main` + `crawler_to_rag`) | `native` / `js` 逐字节一致 | 含 `.warc.gz` 多成员、分片 `WarcGzReader`、HTTP 会话捕获与 WACZ 1.1.1 -> RAG JSONL |
 | **Python 差分预言机** | **通过（exit 0）** | 对照 `hashlib`、`base64`、`zlib.crc32`、`gzip -9` 动态哈夫曼、`scan_archive_gz`、7B 分片 `WarcGzReader`、WACZ 与 `json` |

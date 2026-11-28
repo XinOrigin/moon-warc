@@ -489,3 +489,90 @@ test "WarcGzReader enforces compressed member limit on unterminated FNAME and sh
   assert_eq(r.next_record(), Ok(None))
   assert_eq(r.finish(), Ok(()))
 }
+
+///|
+test "encode_record synchronizes mismatched Content-Length when auto_digest=false and strips stale payload digest on corrupt response" {
+  let smuggle_payload = b"ok\r\n\r\nWARC/1.1\r\nWARC-Type: warcinfo\r\nWARC-Record-ID: <urn:uuid:fake>\r\nWARC-Date: 2026-11-28T00:00:00Z\r\nContent-Length: 0\r\n\r\n"
+  let smuggled = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "resource"),
+      ("WARC-Record-ID", "<urn:uuid:smug-res>"),
+      ("WARC-Date", "2026-11-28T00:00:00Z"),
+      ("WARC-Target-URI", "https://example.org/smug"),
+      ("Content-Length", "0"),
+    ],
+    smuggle_payload,
+  )
+  let wire = @codec.encode_record(smuggled, auto_digest=false)
+  let parsed = @codec.parse_all(wire).unwrap()
+  assert_eq(parsed.length(), 1)
+  assert_eq(parsed[0].payload, smuggle_payload)
+
+  let corrupt_resp = @codec.make_record(
+    @header.Warc1_1,
+    [
+      ("WARC-Type", "response"),
+      ("WARC-Record-ID", "<urn:uuid:stale-resp>"),
+      ("WARC-Date", "2026-11-28T00:00:00Z"),
+      ("WARC-Target-URI", "https://example.org/bad"),
+      ("WARC-Payload-Digest", "sha256:STALE"),
+      ("Content-Length", "11"),
+    ],
+    b"not-http-ok",
+  )
+  let resp_wire = @codec.encode_record(corrupt_resp, auto_digest=true)
+  let parsed_resp = @codec.parse_all(resp_wire).unwrap()
+  assert_eq(parsed_resp[0].header.payload_digest(), None)
+}
+
+///|
+test "WarcGzReader incremental multi-record member offsets, unconsumed finish, and inner WARC error" {
+  let recs = make_multi_type_records()
+  let m0 = @gzip.compress(@codec.encode_all([recs[0], recs[1]]), level=6)
+  let m1 = @codec.encode_record_gz(recs[2])
+  let combined = m0 + m1
+  let baseline = @codec.parse_all_gz(combined).unwrap()
+  for step in [1, 11] {
+    let r = @codec.WarcGzReader::new()
+    let got : Array[@codec.WarcRecord] = []
+    let mut pos = 0
+    while pos < combined.length() {
+      let end = if pos + step > combined.length() {
+        combined.length()
+      } else {
+        pos + step
+      }
+      r.feed(combined[pos:end])
+      while true {
+        match r.next_record() {
+          Ok(Some(rec)) => {
+            got.push(rec)
+            if got.length() <= 2 {
+              assert_eq(r.bytes_consumed(), m0.length().to_int64())
+            } else {
+              assert_eq(r.bytes_consumed(), combined.length().to_int64())
+            }
+          }
+          Ok(None) => break
+          Err(_) => fail("incremental WarcGzReader failed")
+        }
+      }
+      pos = end
+    }
+    assert_eq(r.finish(), Ok(()))
+    assert_eq(got, baseline)
+  }
+  let partial = @codec.WarcGzReader::new()
+  partial.feed(m0)
+  assert_true(partial.next_record() is Ok(Some(_)))
+  assert_true(partial.finish() is Err(@codec.UnexpectedEof(_)))
+
+  let bad_warc_gz = @gzip.compress(
+    b"WARC/1.1\r\nWARC-Type: resource\r\nContent-Length: nope\r\n\r\n",
+    level=6,
+  )
+  let bad_reader = @codec.WarcGzReader::new()
+  bad_reader.feed(bad_warc_gz)
+  assert_true(bad_reader.next_record() is Err(@codec.HeaderError(_)))
+}

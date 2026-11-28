@@ -25,14 +25,15 @@
    - **CNB 云端 `moonc v1.0.0-rc1` `--deny-warn` 捕获接口弃用告警**：本地 `moonc v0.10.22` 未提示的 `@buffer.Buffer::write_bytes` 在腾讯云 CNB `moonc v1.0.0-rc1` 下触发严格 `--deny-warn` 阻断；立即将全库 14 处调用迁移至 `write_bytesview(...[:])`，实现新旧编译器双端零告警通过。
    - **`examples/crawler_to_rag` HTTP Chunked 字节长度误算**：差分预言机早期校验指出内联 chunked 示例响应正文长度为 38 字节（`0x26`）而非 `0x24`，立即修正为 `"26\r\n"` 并验证去分块后 SHA-256 与 Python 一致。
    - **发布前对抗安全审计发现的 6 项边界缺陷（`v0.5.0` 压线清零）**：在最终封板前通过人工对抗审计捕获并修复了 `decode_chunked` 处理 `7fffffff\r\n\r\n` 时的 `Int32` 加法溢出 panic、`WarcGzReader` 未闭合压缩成员缺省限流及成员完成后未缩容、`export_jsonl` 误将 `revisit`/`continuation` 协议头导出为正文 `"text"`、`build_wacz_manifests` 未剥离 `warc_filename` 目录穿越前缀、`deflate_raw` 比特成本统计的 `Int32` 位宽上限，以及 `validate_archive` 中 `<...>` ID 包裹缺少内嵌空白/嵌套括号检查，并补齐 4 组专项负例单测。
+   - **并发三维审计与 6 路单测矩阵捕获的 6 项 P0 漏洞 + 2 项脚本门禁隐患（`v0.5.1` 落地清零）**：通过 6 路并发代码审计（安全 / 性能 / 类型规范）与 6 路隔离单测工作流捕获并修复了多成员 `gzip::decompress` 聚合解压炸弹绕过、`WarcHeader::with_field` 先查找后洗脱引发的重复 `Content-Length` 与折叠头注入、`gzip/` 与 `segment_record` 中的 `Int32` 加法溢出、`inflate_raw` 负偏移越界与 `ByteSink` `abort()` 崩溃、`encode_record(auto_digest=false)` 长度失配走私，以及 `$HOME` 沙盒改写下 `verify_oracle.py` 找不到工具链的隐患，并新增 11 项回归与白盒单元测试。
 
 2. **编译器静态契约、文档测试、覆盖率与零告警门禁**：
-   - 运行 `moon check --deny-warn --target all` 确保全部 12 个包（`38` 份 `.mbt` 源码）在 `moonc v0.10.22` 与 `v1.0.0-rc1` 下均零编译错误、零静态警告。
+   - 运行 `moon check --deny-warn --target all` 确保全部 12 个包（`40` 份 `.mbt` 源码）在 `moonc v0.10.22` 与 `v1.0.0-rc1` 下均零编译错误、零静态警告。
    - 运行 `moon fmt --check` 与 `moon info`，通过各包的 `pkg.generated.mbti` 追踪公共签名，并在 [`README.mbt.md`](README.mbt.md) 中提供由 `moon test` 直接编译运行的 **3 个 `` ```moonbit check `` 文档测试**（覆盖 WACZ 1.1.1）。
-   - 运行 `moon test --target native --enable-coverage && moon coverage analyze` 持续巡检未覆盖分支，全仓库 `Total: 295 uncovered line(s) in 20 file(s)`（含 68 行仅由 `moon run` 触发的 CLI / 示例入口），10 个核心库包未覆盖行数由 `v0.4.0` 的 `229` 行进一步下降至 **`227` 行**。
+   - 运行 `moon test --target native --enable-coverage && moon coverage analyze` 持续巡检未覆盖分支，全仓库由 `v0.5.0` 的 `295` 行进一步下降至 **`286` 行（`20` 文件）**。
 
 3. **四目标矩阵一致性测试、`moon bench` 与跨平台外部基准测量**：
-   - 全套 **200 项**测试（197 项模块单测/Fuzz/负例 + 3 项 `README.mbt.md` 文档测试）+ **5 项** [`moon_warc_bench_test.mbt`](moon_warc_bench_test.mbt) 原生 `@bench.T` 基准在 `wasm`、`wasm-gc`, `js` 与 `native` 四个后端及 CNB `16C32G` Linux `x86_64` 均实测全部通过（0 失败）。按 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) 92.37 MiB 流水线实测压缩体积 `118,906 B` (`73.7%`，仅距 C `gzip -6` `118,547 B` 差 `359 B`)，稳态吞吐 **`native 76.26 MiB/s`**、**`wasm-gc 68.42 MiB/s`**、**`js 43.76 MiB/s`**、**`wasm 31.74 MiB/s`**（对比 CPython `zlib`+`hashlib` C 扩展 `184.19 MiB/s`）。
+   - 全套 **211 项**测试（208 项模块单测/Fuzz/白盒/负例 + 3 项 `README.mbt.md` 文档测试）+ **5 项** [`moon_warc_bench_test.mbt`](moon_warc_bench_test.mbt) 原生 `@bench.T` 基准在 `wasm`、`wasm-gc`, `js` 与 `native` 四个后端及 CNB `16C32G` Linux `x86_64` 均实测全部通过（0 失败）。按 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) 92.37 MiB 流水线实测压缩体积 `118,906 B` (`73.7%`，仅距 C `gzip -6` `118,547 B` 差 `359 B`)，稳态吞吐 **`native 76.26 MiB/s`**、**`wasm-gc 68.42 MiB/s`**、**`js 43.76 MiB/s`**、**`wasm 31.74 MiB/s`**（对比 CPython `zlib`+`hashlib` C 扩展 `184.19 MiB/s`）。
 
 4. **Python 差分验证交叉校验**：
    - 通过 [`scripts/verify_oracle.py`](scripts/verify_oracle.py) 在 `native` 探针下调用 Python 标准库（`hashlib`、`base64`、`zlib`、`gzip`、`json`）核对 SHA-1/SHA-256 Base32、双向 multi-member Dynamic Huffman `.warc.gz`（含 `gzip -9` 与 `FNAME`）、流式 `scan_archive_gz`、7 字节分片 `WarcGzReader`、爬虫 HTTP 会话捕获、WACZ 1.1.1 清单与 RFC 8259 JSONL 解析，并核验 CLI 与 `examples/crawler_to_rag` 在 `native`/`js` 下的输出逐字节一致。

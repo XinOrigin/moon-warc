@@ -156,3 +156,29 @@ test "digest incremental SHA-1 and SHA-256 hashers match one-shot over >1KB mult
   assert_eq(h1.finalize(), @digest.sha1(data))
   assert_eq(h256.finalize(), @digest.sha256(data))
 }
+
+///|
+test "digest rejects non-zero Base32 trailing bits, accepts 52-char unpadded sha256, and rejects bad chars at valid lengths" {
+  assert_true(
+    @digest.base32_decode("MZ======") is Err(@digest.InvalidEncoding(_)),
+  )
+  assert_true(
+    @digest.base32_decode("MZXW7===") is Err(@digest.InvalidEncoding(_)),
+  )
+  let body = b"unpadded-sha256-digest-check"
+  let padded = @digest.format_warc_digest_sha256(body)
+  let unpadded = padded[0:padded.length() - 4].to_owned()
+  assert_eq(@digest.verify_warc_digest(unpadded, body), Ok(true))
+  assert_true(
+    @digest.parse_warc_digest("sha1:" + "z".repeat(40))
+    is Err(@digest.InvalidEncoding(_)),
+  )
+  assert_true(
+    @digest.parse_warc_digest("sha1:" + "!".repeat(32))
+    is Err(@digest.InvalidEncoding(_)),
+  )
+  assert_true(
+    @digest.parse_warc_digest("sha256:" + "!".repeat(52))
+    is Err(@digest.InvalidEncoding(_)),
+  )
+}
