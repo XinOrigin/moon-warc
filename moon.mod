@@ -1,6 +1,6 @@
 name = "XinOrigin/moon_warc"
 
-version = "0.5.1"
+version = "0.5.2"
 
 supported_targets = [ "wasm", "wasm-gc", "js", "native" ]
 

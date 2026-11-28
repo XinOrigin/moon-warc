@@ -17,7 +17,7 @@ fn hardening_build_res(
 
 ///|
 test "hardening root facade library_version and sample_archive_bytes roundtrip" {
-  assert_eq(@moon_warc.library_version(), "0.5.1")
+  assert_eq(@moon_warc.library_version(), "0.5.2")
   let raw = @moon_warc.sample_archive_bytes()
   let recs = match @moon_warc.parse_archive(raw) {
     Ok(r) => r

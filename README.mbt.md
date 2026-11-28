@@ -1,7 +1,9 @@
 # moon-warc
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Version: v0.5.1](https://img.shields.io/badge/Version-v0.5.1-green.svg)](CHANGELOG.md)
+[![CI](https://github.com/XinOrigin/moon-warc/actions/workflows/ci.yml/badge.svg)](https://github.com/XinOrigin/moon-warc/actions/workflows/ci.yml)
+[![mooncakes.io](https://img.shields.io/badge/mooncakes.io-XinOrigin%2Fmoon__warc-blue)](https://mooncakes.io/docs/XinOrigin/moon_warc)
+[![Version: v0.5.2](https://img.shields.io/badge/Version-v0.5.2-green.svg)](CHANGELOG.md)
 [![Targets: wasm | wasm-gc | js | native](https://img.shields.io/badge/Targets-wasm%20%7C%20wasm--gc%20%7C%20js%20%7C%20native-purple.svg)](#多目标验证矩阵与基准测试--verification--benchmarks)
 [![Live Offline Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-orange.svg)](https://xinorigin.github.io/moon-warc/)
 
@@ -9,7 +11,7 @@
 
 > **在线交互演示（100% 浏览器本地运行，零文件上传）：** [https://xinorigin.github.io/moon-warc/](https://xinorigin.github.io/moon-warc/)（源码位于 [`docs/index.html`](docs/index.html)，由 [`scripts/build_web_demo.py`](scripts/build_web_demo.py) 直接从 MoonBit JS 后端编译 [`docs/moon_warc_web.js`](docs/moon_warc_web.js) 生成）。
 >
-> **English Summary:** `XinOrigin/moon_warc` (`v0.5.1`) is a zero-dependency, pure-MoonBit library for reading, writing, compressing, indexing, segmenting, packaging (`WACZ 1.1.1`), exporting, and validating ISO 28500 WARC 1.0/1.1 streams and multi-member RFC 1952 `.warc.gz` archives. Targeting `wasm`, `wasm-gc`, `js`, and `native` identically, it includes executable doc-tests, `Int64` >2 GiB stream offsets, configurable `ReaderLimits`, zero-allocation Dynamic Huffman (`BTYPE=2`) DEFLATE encoding + reusable `InflateScratch` (`scan_members_while`), RFC 9112 chunked HTTP entity extraction, FIPS 180-4 SHA-1/SHA-256 + Base32/Hex digests, `String::lexical_compare` SURT/CDXJ/CDX-11 binary-search indexing, §9 segmentation/reassembly, WACZ 1.1.1 manifest generation, RFC 8259 JSONL export, native `moon bench` benchmarks, and a runnable `examples/crawler_to_rag` pipeline.
+> **English Summary:** `XinOrigin/moon_warc` (`v0.5.2`) is a zero-dependency, pure-MoonBit library for reading, writing, compressing, indexing, segmenting, packaging (`WACZ 1.1.1`), exporting, and validating ISO 28500 WARC 1.0/1.1 streams and multi-member RFC 1952 `.warc.gz` archives. Targeting `wasm`, `wasm-gc`, `js`, and `native` identically, it includes executable doc-tests, `Int64` >2 GiB stream offsets, configurable `ReaderLimits`, zero-allocation Dynamic Huffman (`BTYPE=2`) DEFLATE encoding + reusable `InflateScratch` (`scan_members_while`), RFC 9112 chunked HTTP entity extraction, FIPS 180-4 SHA-1/SHA-256 + Base32/Hex digests, `String::lexical_compare` SURT/CDXJ/CDX-11 binary-search indexing, §9 segmentation/reassembly, WACZ 1.1.1 manifest generation, RFC 8259 JSONL export, native `moon bench` benchmarks, and a runnable `examples/crawler_to_rag` pipeline.
 
 ---
 
@@ -164,9 +166,9 @@ test "readme: chunked WarcGzReader streaming, HTTP exchange capture, and WACZ 1.
 
 ## 生态对比与差异化说明 / MoonBit Ecosystem Differentiation
 
-`mooncakes.io` 既有同类库 `xiaojing012/moon-warc@0.1.0` 在其 [`docs/limitations.md`](https://github.com/xiaojing012/moon-warc/blob/main/docs/limitations.md) 中明确聚焦于基础 `WARC/1.1` 帧解析，尚未实现 `.warc.gz` 压缩/流式解码、加密摘要计算、HTTP 分块负载拆解与导出生态。`XinOrigin/moon_warc@0.5.1` 在保持零第三方依赖与 `Apache-2.0` 原创实现的基础上，补齐了完整的端到端生产能力：
+`mooncakes.io` 既有同类库 `xiaojing012/moon-warc@0.1.0` 在其 [`docs/limitations.md`](https://github.com/xiaojing012/moon-warc/blob/main/docs/limitations.md) 中明确聚焦于基础 `WARC/1.1` 帧解析，尚未实现 `.warc.gz` 压缩/流式解码、加密摘要计算、HTTP 分块负载拆解与导出生态。`XinOrigin/moon_warc@0.5.2` 在保持零第三方依赖与 `Apache-2.0` 原创实现的基础上，补齐了完整的端到端生产能力：
 
-| 维度 | `xiaojing012/moon-warc@0.1.0` (`mooncakes.io`) | `XinOrigin/moon_warc@0.5.1` (本仓库) |
+| 维度 | `xiaojing012/moon-warc@0.1.0` (`mooncakes.io`) | `XinOrigin/moon_warc@0.5.2` (本仓库) |
 | --- | --- | --- |
 | **WARC 版本与大文件边界** | `WARC/1.1` 基础记录解析 | **WARC 1.0 & 1.1**、严格闰年日历、`Int64` >2 GiB 流偏移、`ReaderLimits` 与 CRLF 注入防护 |
 | **`.warc.gz` 多成员流式编解码** | 不包含（未实现 Gzip/DEFLATE） | 纯 MoonBit **Dynamic Huffman (`BTYPE=2`)** 压缩、`scan_members_while` / `WarcGzReader` 恒定成员内存流式解码、`compressed_offset` 范围跟踪 |
@@ -179,7 +181,7 @@ test "readme: chunked WarcGzReader streaming, HTTP exchange capture, and WACZ 1.
 
 ## 作用域与非目标 / Scope & Non-Goals
 
-### 在范围内 (In Scope `v0.5.1`)
+### 在范围内 (In Scope `v0.5.2`)
 - ISO 28500:2009 (`WARC/1.0`) 与 ISO 28500:2017 (`WARC/1.1`) 全类型记录帧解析、编码、合规校验与 §9 分片重组。
 - 纯 MoonBit RFC 1951 DEFLATE（Stored `BTYPE=0` / Fixed `BTYPE=1` / Dynamic Huffman `BTYPE=2`）与 RFC 1952 **多成员 `.warc.gz`** 压缩、流式解压（`InflateScratch` 复用与 `scan_members_while`）、CRC-32/ISIZE 校验与压缩字节范围索引。
 - 纯 MoonBit SHA-1 / SHA-256、Base32 / Hex、HTTP/1.x Chunked 实体提取、SURT、CDXJ、11 列 CDX、`revisit` 溯源、**WebRecorder WACZ 1.1.1** 清单生成与 RFC 8259 JSONL 导出。

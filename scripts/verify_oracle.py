@@ -246,7 +246,7 @@ def verify_cli_outputs() -> None:
         raise AssertionError("CLI stdout differs between native and js targets")
 
     required_markers = [
-        "moon-warc v0.5.1",
+        "moon-warc v0.5.2",
         "Sample archive size: 3188 bytes",
         "=== Records (6) ===",
         "type=warcinfo",
@@ -311,7 +311,7 @@ def verify_cli_outputs() -> None:
     if ex_native != ex_js:
         raise AssertionError("Example crawler_to_rag stdout differs between native and js targets")
     for marker in [
-        "moon-warc v0.5.1 Example:",
+        "moon-warc v0.5.2 Example:",
         "records=5 valid=true errors=0",
         "WACZ 1.1.1 datapackage bytes=",
         "cdxj_entries=2",

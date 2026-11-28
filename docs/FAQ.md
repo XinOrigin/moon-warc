@@ -1,4 +1,4 @@
-# 设计问答与技术说明 / Design FAQ (`v0.5.1`)
+# 设计问答与技术说明 / Design FAQ (`v0.5.2`)
 
 本文档记录 `XinOrigin/moon-warc` 在架构选型、MoonBit 语义细节、`.warc.gz` 多成员 Dynamic Huffman 设计、WACZ 1.1.1、验证方法与 AI 使用披露上的 10 个常见问题。
 

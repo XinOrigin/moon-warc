@@ -5,6 +5,13 @@ All notable changes to `XinOrigin/moon_warc` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-11-28
+
+### Added
+
+- **Live 3-OS GitHub Actions CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))**: Activated multi-OS matrix CI across `ubuntu-latest`, `macos-latest`, and `windows-latest` (`ilammy/msvc-dev-cmd@v1` for MSVC `--target native`), verifying `moon check --deny-warn --target all`, `moon fmt --check`, `.mbti` interface freshness, `moon test --deny-warn --target all` (211/211 across `wasm`, `wasm-gc`, `js`, `native`), native `moon bench`, `cmd/main` & `examples/crawler_to_rag` runs, Python differential oracle, and `moon package --list` hygiene checks on every push/PR/tag.
+- **`mooncakes.io` Release Packaging & Live Badges (`README.mbt.md`, `moon.mod`)**: Added live GitHub Actions CI and `mooncakes.io` badges, synchronized `README.md`, rebuilt `docs/moon_warc_web.js`, and bumped `XinOrigin/moon_warc` to `0.5.2`.
+
 ## [0.5.1] - 2026-11-28
 
 ### Fixed & Hardened

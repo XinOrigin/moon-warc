@@ -1,6 +1,6 @@
 ///|
 test "root facade sample_archive_bytes parses, validates, indexes, resolves revisits, and round-trips" {
-  assert_eq(@moon_warc.library_version(), "0.5.1")
+  assert_eq(@moon_warc.library_version(), "0.5.2")
   let raw = @moon_warc.sample_archive_bytes()
   let records = match @moon_warc.parse_archive(raw) {
     Ok(recs) => recs

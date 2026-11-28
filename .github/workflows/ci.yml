@@ -1,0 +1,79 @@
+name: Check and Test
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-all-targets:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Enable MSVC toolchain (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Install MoonBit (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Install MoonBit (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          Add-Content -Path $env:GITHUB_PATH -Value "$HOME\.moon\bin"
+      - name: Toolchain version
+        run: moon version --all
+      - name: Strict check (--deny-warn --target all)
+        run: moon check --deny-warn --target all
+      - name: Format & interface check
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          moon fmt --check
+          moon info
+          git diff --exit-code -- '*.mbti'
+          test -z "$(git ls-files --others --exclude-standard -- '*.mbti')"
+      - name: Strict tests (--deny-warn --target all)
+        run: moon test --deny-warn --target all
+      - name: Benchmarks sanity check
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: moon bench --release --target native
+      - name: Run CLI & Example (native & js)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          moon run cmd/main --target native
+          moon run cmd/main --target js
+          moon run examples/crawler_to_rag --target native
+          moon run examples/crawler_to_rag --target js
+      - name: Differential Oracle (Python)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: python3 scripts/verify_oracle.py
+      - name: Package archive stays clean
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          trap 'rm -f pkg-list.txt' EXIT
+          moon package --list >pkg-list.txt 2>&1
+          cat pkg-list.txt
+          if grep -E '^(scripts/|web_demo/|_build/|target/|\.github/|docs/|PROJECT_PROPOSAL\.md|AI_USAGE\.md|SUBMISSION_CHECKLIST\.md|pkg-list\.txt$)' pkg-list.txt; then
+            echo "::error::non-package files leaked into moon package"
+            exit 1
+          fi

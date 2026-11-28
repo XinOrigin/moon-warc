@@ -1,7 +1,7 @@
 ///|
 /// Returns the library version string.
 pub fn library_version() -> String {
-  "0.5.1"
+  "0.5.2"
 }
 
 ///|

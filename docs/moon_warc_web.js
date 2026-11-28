@@ -16112,7 +16112,7 @@ function _M0FP39XinOrigin10moon__warc17__web__build__tmp21inspect__archive__hex(
   const _bind$11 = [];
   const out = _M0MPB3Map3MapGsRPC14json4JsonE(new _M0TPB9ArrayViewGUsRPC14json4JsonEE(_bind$11, 0, 0), undefined);
   _M0MPB3Map3setGsRPC14json4JsonE(out, "ok", _M0DTPC14json4Json4True__);
-  const _p$2 = "0.5.1";
+  const _p$2 = "0.5.2";
   _M0MPB3Map3setGsRPC14json4JsonE(out, "version", new _M0DTPC14json4Json6String(_p$2));
   _M0MPB3Map3setGsRPC14json4JsonE(out, "format", new _M0DTPC14json4Json6String(format_str));
   _M0MPB3Map3setGsRPC14json4JsonE(out, "is_gz", is_gz ? _M0DTPC14json4Json4True__ : _M0DTPC14json4Json5False__);
